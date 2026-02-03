@@ -12,11 +12,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
   const [progress, setProgress] = useState(0);
   const [isAuthInProgress, setIsAuthInProgress] = useState(false);
   const [status, setStatus] = useState('PROTOCOLS_LOCKED');
+  const [currentTime, setCurrentTime] = useState(new Date());
   
   const [paths, setPaths] = useState<Array<{x: number, y: number}[]>>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const canvasRef = useRef<SVGSVGElement>(null);
   const timerRef = useRef<number | null>(null);
+
+  // Clock Update Effect
+  useEffect(() => {
+    const clockInterval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(clockInterval);
+  }, []);
 
   // Decorative data particles for the biometric scan
   const particles = useMemo(() => {
@@ -100,11 +109,29 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
     }, 30);
   };
 
+  const formattedTime = currentTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const formattedDate = currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
+
   return (
     <div className="fixed inset-0 z-[100] bg-[#050201] flex flex-col items-center justify-center p-6 sm:p-12 select-none overflow-hidden touch-none">
       {/* Background Ambience */}
       <div className="absolute inset-0 bg-grid opacity-20"></div>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.08),transparent_70%)]"></div>
+
+      {/* Top Left Status Box */}
+      <div className="absolute top-8 left-8 border-l border-t border-amber-500/20 p-4 hidden md:block">
+        <div className="text-[9px] font-orbitron text-amber-500/40 tracking-[0.3em] mb-1">SYSTEM_UPTIME</div>
+        <div className="text-xs font-mono text-amber-500 tracking-wider">04:12:44:09</div>
+      </div>
+
+      {/* Top Right Tactical Clock */}
+      <div className="absolute top-8 right-8 text-right border-r border-t border-amber-500/20 p-4">
+        <div className="text-[10px] font-orbitron text-amber-500/40 tracking-[0.4em] mb-1 uppercase">Tactical_Chronograph</div>
+        <div className="text-4xl font-orbitron font-black text-amber-500 tracking-widest drop-shadow-[0_0_15px_rgba(245,158,11,0.5)]">
+          {formattedTime}
+        </div>
+        <div className="text-[9px] font-mono text-amber-600 tracking-[0.2em] mt-1">{formattedDate}</div>
+      </div>
 
       <div className="relative z-10 flex flex-col items-center gap-10 w-full max-w-xl">
         {/* Logo Hub */}

@@ -3,9 +3,31 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import { Message } from "../types";
 
 export const getGeminiClient = () => {
-  // Use a fresh instance with the most current API_KEY from the environment
   const apiKey = process.env.API_KEY || '';
+  if (!apiKey) {
+    // We throw a specific error that the UI can catch to trigger the sync dialog
+    throw new Error("AUTH_KEY_NOT_SET");
+  }
   return new GoogleGenAI({ apiKey });
+};
+
+/**
+ * Performs a lightweight handshake to verify the current API key is valid.
+ */
+export const verifyProtocols = async (): Promise<boolean> => {
+  try {
+    const ai = getGeminiClient();
+    // Use a very light model for connection testing
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-lite-latest",
+      contents: "ping",
+      config: { maxOutputTokens: 1 }
+    });
+    return !!response.text;
+  } catch (error) {
+    console.error("Protocol verification failed:", error);
+    return false;
+  }
 };
 
 // Manual base64 decoding as per SDK rules
@@ -65,25 +87,14 @@ export async function generateJarvisSpeech(text: string): Promise<string> {
     });
 
     const candidate = response.candidates?.[0];
-    if (!candidate) {
-      throw new Error("No candidates returned from speech engine.");
-    }
+    if (!candidate) throw new Error("No candidates returned.");
     
-    const parts = candidate.content?.parts;
-    if (!parts) {
-      throw new Error(`Speech engine candidate has no content.`);
-    }
-    
-    const audioPart = parts.find(p => p.inlineData);
-    const base64Audio = audioPart?.inlineData?.data;
-    
-    if (!base64Audio) {
-      throw new Error(`Model response did not contain inline audio data.`);
-    }
+    const base64Audio = candidate.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+    if (!base64Audio) throw new Error("No audio data returned.");
     
     return base64Audio;
   } catch (error) {
-    console.error("Critical: Jarvis Speech Engine failure:", error);
+    console.error("Jarvis Speech Engine failure:", error);
     throw error;
   }
 }
