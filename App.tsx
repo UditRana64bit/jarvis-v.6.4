@@ -302,7 +302,7 @@ const App: React.FC = () => {
                     <p className="text-[7px] font-mono text-amber-900 italic">No telemetry data...</p>
                   ) : (
                     diagnosticLog.map((log, i) => (
-                      <p key={i} className="text-[7px] font-mono text-amber-500/80 uppercase tracking-tighter">[{new Date().toLocaleTimeString()}] > {log}</p>
+                      <p key={i} className="text-[7px] font-mono text-amber-500/80 uppercase tracking-tighter">[{new Date().toLocaleTimeString()}]{log}</p>
                     ))
                   )}
                 </div>
