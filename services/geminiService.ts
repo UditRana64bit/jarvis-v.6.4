@@ -3,7 +3,7 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import { Message } from "../types";
 
 export const getGeminiClient = () => {
-  // Always fetch API_KEY inside the call to get the most recent one
+  // Use a fresh instance with the most current API_KEY from the environment
   const apiKey = process.env.API_KEY || '';
   return new GoogleGenAI({ apiKey });
 };
@@ -66,23 +66,19 @@ export async function generateJarvisSpeech(text: string): Promise<string> {
 
     const candidate = response.candidates?.[0];
     if (!candidate) {
-      throw new Error("No candidates returned from speech engine. The model might have failed to respond.");
+      throw new Error("No candidates returned from speech engine.");
     }
     
     const parts = candidate.content?.parts;
     if (!parts) {
-      const reason = (candidate as any).finishReason || 'UNKNOWN_REASON';
-      throw new Error(`Speech engine candidate has no content. Finish Reason: ${reason}`);
+      throw new Error(`Speech engine candidate has no content.`);
     }
     
     const audioPart = parts.find(p => p.inlineData);
     const base64Audio = audioPart?.inlineData?.data;
     
     if (!base64Audio) {
-      // Log text parts if any, to debug why audio is missing
-      const textParts = parts.filter(p => p.text).map(p => p.text).join(' ');
-      console.warn("Jarvis TTS Warning: Audio modality missing. Model output:", textParts);
-      throw new Error(`Model response did not contain inline audio data. Model output: ${textParts || 'Empty Response'}`);
+      throw new Error(`Model response did not contain inline audio data.`);
     }
     
     return base64Audio;

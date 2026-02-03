@@ -16,6 +16,7 @@ const App: React.FC = () => {
   const [isLiveActive, setIsLiveActive] = useState(false);
   const [currentTranscription, setCurrentTranscription] = useState('');
   const [systemError, setSystemError] = useState<string | null>(null);
+  const [needsKeySync, setNeedsKeySync] = useState(false);
 
   const audioContextInRef = useRef<AudioContext | null>(null);
   const audioContextOutRef = useRef<AudioContext | null>(null);
@@ -26,6 +27,17 @@ const App: React.FC = () => {
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Check for API key selection state on mount
+  useEffect(() => {
+    const checkKey = async () => {
+      if (typeof (window as any).aistudio?.hasSelectedApiKey === 'function') {
+        const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+        setNeedsKeySync(!hasKey);
+      }
+    };
+    checkKey();
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -59,7 +71,20 @@ const App: React.FC = () => {
     }
 
     setSystemError(null);
+
+    // Mandatory Key Selection Check
+    if (typeof (window as any).aistudio?.hasSelectedApiKey === 'function') {
+      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+      if (!hasKey) {
+        setSystemError("AUTH_KEY_SYNC_REQUIRED");
+        await (window as any).aistudio.openSelectKey();
+        setNeedsKeySync(false);
+        // Proceeding immediately as instructed to mitigate race conditions
+      }
+    }
+
     try {
+      // Create a fresh client instance right before connection
       const ai = getGeminiClient();
       
       if (!audioContextOutRef.current) {
@@ -143,9 +168,14 @@ const App: React.FC = () => {
             }
           },
           onclose: () => cleanupSession(),
-          onerror: (e) => {
+          onerror: (e: any) => {
             console.error("Neural Link Error:", e);
-            setSystemError("LINK_FAILURE: RE-INITIALIZING...");
+            if (e?.message?.includes("Requested entity was not found")) {
+              setSystemError("API_KEY_INVALID_OR_MISSING");
+              setNeedsKeySync(true);
+            } else {
+              setSystemError("LINK_FAILURE: RE-INITIALIZING...");
+            }
             cleanupSession();
           }
         },
@@ -163,7 +193,12 @@ const App: React.FC = () => {
       sessionRef.current = await sessionPromise;
     } catch (err: any) {
       console.error("Link Failure:", err);
-      setSystemError(err.message || "SYNC_ERROR");
+      if (err?.message?.includes("Requested entity was not found")) {
+        setNeedsKeySync(true);
+        setSystemError("KEY_AUTHORIZATION_REQUIRED");
+      } else {
+        setSystemError(err.message || "SYNC_ERROR");
+      }
       cleanupSession();
     }
   };
@@ -213,6 +248,14 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-4 sm:gap-8">
+          {needsKeySync && (
+            <button 
+              onClick={() => (window as any).aistudio.openSelectKey()}
+              className="text-[8px] font-orbitron text-amber-400 animate-pulse tracking-widest uppercase bg-amber-500/10 px-3 py-1 border border-amber-500/20 rounded-sm hover:bg-amber-500/20 transition-all"
+            >
+              SYNC_ENCRYPTION_KEY
+            </button>
+          )}
           {systemError && (
             <span className="text-[8px] font-orbitron text-red-500 animate-pulse tracking-widest uppercase bg-red-500/10 px-3 py-1 border border-red-500/20 rounded-sm">
               {systemError}
@@ -268,6 +311,20 @@ const App: React.FC = () => {
 
           {/* Controller HUD - Thumb Friendly Interaction */}
           <div className="px-6 sm:px-20 py-10 glass-dark border-t border-amber-500/10 flex flex-col items-center gap-6 z-20">
+            {needsKeySync && (
+               <div className="mb-4 text-center">
+                 <p className="text-[9px] font-orbitron text-amber-500/40 tracking-widest mb-2">NEURAL_ENCRYPTION_BUFFER_EMPTY</p>
+                 <a 
+                  href="https://ai.google.dev/gemini-api/docs/billing" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-[7px] font-mono text-amber-600 hover:text-amber-400 underline transition-colors"
+                >
+                  VIEW_BILLING_DOCS_V9.2
+                </a>
+               </div>
+            )}
+            
             {isLiveActive ? (
               <div className="flex items-center gap-10 w-full max-w-4xl">
                 <div className="flex flex-col items-center gap-3">
