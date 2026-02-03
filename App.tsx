@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [needsKeySync, setNeedsKeySync] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [diagnosticStatus, setDiagnosticStatus] = useState<'idle' | 'testing' | 'success' | 'fail'>('idle');
+  const [isVercel, setIsVercel] = useState(false);
 
   const audioContextInRef = useRef<AudioContext | null>(null);
   const audioContextOutRef = useRef<AudioContext | null>(null);
@@ -31,15 +32,26 @@ const App: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const checkKey = async () => {
-      if (typeof (window as any).aistudio?.hasSelectedApiKey === 'function') {
-        const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-        setNeedsKeySync(!hasKey);
-      }
+    const detectEnv = () => {
+      const hasAiStudio = typeof (window as any).aistudio !== 'undefined';
+      setIsVercel(!hasAiStudio);
+      
+      const checkKey = async () => {
+        if (hasAiStudio && (window as any).aistudio.hasSelectedApiKey) {
+          const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+          setNeedsKeySync(!hasKey);
+        } else {
+          // On Vercel or standard web, check if process.env.API_KEY is available
+          setNeedsKeySync(!process.env.API_KEY);
+        }
+      };
+      
+      checkKey();
+      const interval = setInterval(checkKey, 5000);
+      return () => clearInterval(interval);
     };
-    checkKey();
-    const interval = setInterval(checkKey, 3000);
-    return () => clearInterval(interval);
+    
+    detectEnv();
   }, []);
 
   useEffect(() => {
@@ -68,9 +80,13 @@ const App: React.FC = () => {
 
   const runDiagnostics = async () => {
     setDiagnosticStatus('testing');
-    const isWorking = await verifyProtocols();
-    setDiagnosticStatus(isWorking ? 'success' : 'fail');
-    if (!isWorking) setNeedsKeySync(true);
+    try {
+      const isWorking = await verifyProtocols();
+      setDiagnosticStatus(isWorking ? 'success' : 'fail');
+      if (!isWorking) setNeedsKeySync(true);
+    } catch (e) {
+      setDiagnosticStatus('fail');
+    }
     setTimeout(() => setDiagnosticStatus('idle'), 5000);
   };
 
@@ -82,7 +98,8 @@ const App: React.FC = () => {
 
     setSystemError(null);
 
-    if (typeof (window as any).aistudio?.hasSelectedApiKey === 'function') {
+    // Only force AI Studio sync if the environment supports it
+    if (!isVercel && (window as any).aistudio?.hasSelectedApiKey) {
       const hasKey = await (window as any).aistudio.hasSelectedApiKey();
       if (!hasKey) {
         setSystemError("AUTH_KEY_SYNC_REQUIRED");
@@ -178,7 +195,9 @@ const App: React.FC = () => {
       if (err?.message?.includes("AUTH_KEY_NOT_SET") || err?.message?.includes("entity was not found")) {
         setNeedsKeySync(true);
         setSystemError("KEY_SYNC_REQUIRED");
-        await (window as any).aistudio.openSelectKey();
+        if (!isVercel && (window as any).aistudio?.openSelectKey) {
+           await (window as any).aistudio.openSelectKey();
+        }
       } else {
         setSystemError("SYNC_ERROR");
       }
@@ -208,10 +227,14 @@ const App: React.FC = () => {
     <div className="relative h-screen flex flex-col overflow-hidden bg-[#050201] text-amber-50">
       <header className="relative z-20 glass-dark border-b border-amber-500/10 px-6 sm:px-12 py-5 flex items-center justify-between">
         <div className="flex items-center gap-5">
-          <div className="w-10 h-10 border-2 border-amber-500/40 rounded flex items-center justify-center font-orbitron font-black text-xl text-amber-400">J</div>
+          <div className="w-10 h-10 border-2 border-amber-500/40 rounded flex items-center justify-center font-orbitron font-black text-xl text-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.2)]">J</div>
           <div className="flex flex-col">
             <h1 className="font-orbitron font-black tracking-[0.4em] text-xl sm:text-2xl text-amber-50">JARVIS</h1>
-            <span className="text-[7px] font-orbitron text-amber-500/40 tracking-[0.4em] uppercase">LINK_MARK_XLV_ONLINE</span>
+            <div className="flex items-center gap-2">
+               <span className="text-[7px] font-orbitron text-amber-500/40 tracking-[0.4em] uppercase">LINK_MARK_XLV_ONLINE</span>
+               <span className="w-1 h-1 bg-amber-500/20 rounded-full"></span>
+               <span className="text-[7px] font-orbitron text-amber-600/60 tracking-[0.4em] uppercase">{isVercel ? 'VERCEL_CLOUD_STABLE' : 'STARK_INT_LOCAL'}</span>
+            </div>
           </div>
         </div>
         
@@ -224,6 +247,7 @@ const App: React.FC = () => {
           <button 
             onClick={() => setIsSettingsOpen(true)}
             className="p-2.5 rounded-lg border border-amber-500/20 text-amber-500 hover:bg-amber-500/10 transition-all group"
+            title="System Configuration"
           >
             <svg className="w-5 h-5 group-hover:rotate-90 transition-transform duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -245,54 +269,63 @@ const App: React.FC = () => {
         <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsSettingsOpen(false)}></div>
         <div className={`absolute right-0 top-0 bottom-0 w-full max-w-md glass-dark border-l border-amber-500/20 p-8 transform transition-transform duration-500 ${isSettingsOpen ? 'translate-x-0' : 'translate-x-full'}`}>
           <div className="flex justify-between items-center mb-12">
-            <h2 className="font-orbitron text-xl tracking-[0.3em] text-amber-500 uppercase">Core_Config</h2>
+            <h2 className="font-orbitron text-xl tracking-[0.3em] text-amber-500 uppercase">System_Config</h2>
             <button onClick={() => setIsSettingsOpen(false)} className="text-amber-900 hover:text-amber-500"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
           </div>
 
           <div className="space-y-12">
             <div className="space-y-6">
-              <h3 className="text-[10px] font-orbitron tracking-widest text-amber-800 uppercase">Neural_Auth_Buffer</h3>
+              <h3 className="text-[10px] font-orbitron tracking-widest text-amber-800 uppercase">API_GATEWAY_AUTHORIZATION</h3>
               <div className="glass p-6 rounded-xl border-amber-500/10 space-y-6">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono text-amber-500/60 uppercase">Link_Status</span>
+                  <span className="text-xs font-mono text-amber-500/60 uppercase">Sync_Status</span>
                   <span className={`text-[10px] font-orbitron uppercase tracking-widest ${needsKeySync ? 'text-red-500 animate-pulse' : 'text-green-500 shadow-[0_0_10px_rgba(34,197,94,0.3)]'}`}>
-                    {needsKeySync ? 'SYNC_REQUIRED' : 'PROTOCOLS_ACTIVE'}
+                    {needsKeySync ? 'KEY_SYNC_REQUIRED' : 'ENCRYPTION_ACTIVE'}
                   </span>
                 </div>
                 
                 <div className="space-y-3">
-                  <button 
-                    onClick={() => (window as any).aistudio.openSelectKey()}
-                    className="w-full py-4 bg-amber-500 text-black font-orbitron text-[10px] tracking-widest uppercase rounded-lg hover:bg-amber-400 transition-all shadow-lg active:scale-95"
-                  >
-                    Sync Neural Key
-                  </button>
+                  {!isVercel ? (
+                    <button 
+                      onClick={() => (window as any).aistudio.openSelectKey()}
+                      className="w-full py-4 bg-amber-500 text-black font-orbitron text-[10px] tracking-widest uppercase rounded-lg hover:bg-amber-400 transition-all shadow-lg active:scale-95"
+                    >
+                      Sync AI Studio Key
+                    </button>
+                  ) : (
+                    <div className="w-full py-4 bg-amber-950/20 border border-amber-500/20 text-amber-500/60 font-orbitron text-[8px] tracking-[0.2em] text-center uppercase rounded-lg px-4">
+                      Key Managed by Vercel Environment Variables
+                    </div>
+                  )}
+                  
                   <button 
                     onClick={runDiagnostics}
                     disabled={diagnosticStatus === 'testing'}
                     className={`w-full py-4 border font-orbitron text-[10px] tracking-widest uppercase rounded-lg transition-all ${diagnosticStatus === 'testing' ? 'opacity-50 border-blue-500 text-blue-400' : diagnosticStatus === 'success' ? 'border-green-500 text-green-500' : diagnosticStatus === 'fail' ? 'border-red-500 text-red-500' : 'border-amber-500/30 text-amber-500 hover:bg-amber-500/10'}`}
                   >
-                    {diagnosticStatus === 'testing' ? 'Verifying...' : diagnosticStatus === 'success' ? 'Link Verified' : diagnosticStatus === 'fail' ? 'Verify Failed' : 'Test Protocol Link'}
+                    {diagnosticStatus === 'testing' ? 'Testing Handshake...' : diagnosticStatus === 'success' ? 'Protocol Verified' : diagnosticStatus === 'fail' ? 'Verification Failed' : 'Check Protocol Link'}
                   </button>
                 </div>
 
                 <p className="text-[7px] font-mono text-amber-900 leading-relaxed uppercase tracking-wider">
-                  Live API demands an authenticated AI Studio key. Ensure your project has active billing for stable synaptic throughput.
+                  {isVercel 
+                    ? "Production mode: Ensure 'API_KEY' is configured in your Vercel Project dashboard. Standard Gemini API keys are fully compatible."
+                    : "Development mode: Use the AI Studio select-key dialog to link your project key."}
                 </p>
               </div>
             </div>
 
             <div className="space-y-6">
-               <h3 className="text-[10px] font-orbitron tracking-widest text-amber-800 uppercase">System_Telemetry</h3>
+               <h3 className="text-[10px] font-orbitron tracking-widest text-amber-800 uppercase">Network_Telemetry</h3>
                <div className="grid grid-cols-2 gap-4">
                   <TelemetryCard label="Latency" value="18ms" />
-                  <TelemetryCard label="Encryption" value="AES-256" />
-                  <TelemetryCard label="Core_Load" value="0.08%" />
-                  <TelemetryCard label="Stability" value="99.9%" />
+                  <TelemetryCard label="Sync_Rate" value="99.8%" />
+                  <TelemetryCard label="Deployment" value={isVercel ? 'VERCEL' : 'HOSTED'} />
+                  <TelemetryCard label="API_Tier" value="PREVIEW" />
                </div>
             </div>
 
-            <button onClick={() => window.location.reload()} className="w-full py-3 border border-red-900/40 text-red-900/40 hover:text-red-500 hover:border-red-500 hover:bg-red-500/5 transition-all font-orbitron text-[9px] tracking-widest uppercase rounded">Reboot System</button>
+            <button onClick={() => window.location.reload()} className="w-full py-3 border border-red-900/40 text-red-900/40 hover:text-red-500 hover:border-red-500 hover:bg-red-500/5 transition-all font-orbitron text-[9px] tracking-widest uppercase rounded">Interface Reboot</button>
           </div>
         </div>
       </div>
@@ -329,12 +362,15 @@ const App: React.FC = () => {
           </div>
           
           <div className="px-6 sm:px-20 py-10 glass-dark border-t border-amber-500/10 flex flex-col items-center gap-6 z-20">
-            {needsKeySync && (
-              <button onClick={() => (window as any).aistudio.openSelectKey()} className="text-[9px] font-orbitron text-amber-500/50 animate-pulse uppercase tracking-[0.3em] hover:text-amber-500 transition-colors">Encryption_Buffer_Empty: [Sync_Required]</button>
+            {needsKeySync && !isVercel && (
+              <button onClick={() => (window as any).aistudio.openSelectKey()} className="text-[9px] font-orbitron text-amber-500/50 animate-pulse uppercase tracking-[0.3em] hover:text-amber-500 transition-colors">Key_Sync_Pending: [Standard_API_Key]</button>
+            )}
+            {needsKeySync && isVercel && (
+              <p className="text-[7px] font-orbitron text-red-500/50 uppercase tracking-[0.3em]">Warning: API_KEY environment variable missing from deployment</p>
             )}
             {isLiveActive ? (
               <div className="flex items-center gap-10 w-full max-w-4xl">
-                <div className={`w-20 h-20 rounded-2xl border flex items-center justify-center transition-all ${isSpeaking ? 'border-amber-500 bg-amber-500/10' : 'border-white/10'}`}>
+                <div className={`w-20 h-20 rounded-2xl border flex items-center justify-center transition-all ${isSpeaking ? 'border-amber-500 bg-amber-500/10 shadow-[0_0_20px_rgba(245,158,11,0.2)]' : 'border-white/10'}`}>
                   <svg className={`w-10 h-10 ${isSpeaking ? 'text-amber-400' : 'text-amber-950'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
                 </div>
                 <div className="flex-1 flex gap-1.5 items-center justify-center h-12 overflow-hidden">
@@ -344,7 +380,7 @@ const App: React.FC = () => {
             ) : (
               <div className="flex flex-col items-center gap-3 cursor-pointer group" onClick={initLiveSession}>
                 <div className="flex gap-1.5">{[...Array(5)].map((_, i) => <div key={i} className="w-1.5 h-1.5 bg-amber-500/20 rounded-full animate-pulse" style={{ animationDelay: `${i * 0.2}s` }}></div>)}</div>
-                <p className="font-orbitron text-[10px] text-amber-500/30 tracking-[0.5em] uppercase group-hover:text-amber-500 transition-colors">Link_Establishment_Pending</p>
+                <p className="font-orbitron text-[10px] text-amber-500/30 tracking-[0.5em] uppercase group-hover:text-amber-500 transition-colors">Establish_Protocol_Link</p>
               </div>
             )}
           </div>
@@ -357,7 +393,7 @@ const App: React.FC = () => {
 const TelemetryCard: React.FC<{ label: string, value: string }> = ({ label, value }) => (
   <div className="glass p-4 rounded-lg border-amber-500/5">
     <span className="text-[8px] font-mono text-amber-900 block mb-1 uppercase tracking-widest">{label}</span>
-    <span className="text-xs font-orbitron text-amber-500">{value}</span>
+    <span className="text-xs font-orbitron text-amber-50">{value}</span>
   </div>
 );
 
