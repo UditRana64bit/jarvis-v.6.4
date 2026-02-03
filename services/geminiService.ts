@@ -5,7 +5,6 @@ import { Message } from "../types";
 export const getGeminiClient = () => {
   const apiKey = process.env.API_KEY || '';
   if (!apiKey) {
-    // We throw a specific error that the UI can catch to trigger the sync dialog
     throw new Error("AUTH_KEY_NOT_SET");
   }
   return new GoogleGenAI({ apiKey });
@@ -14,19 +13,29 @@ export const getGeminiClient = () => {
 /**
  * Performs a lightweight handshake to verify the current API key is valid.
  */
-export const verifyProtocols = async (): Promise<boolean> => {
+export const verifyProtocols = async (): Promise<{ success: boolean; error?: string }> => {
   try {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) return { success: false, error: "ENVIRONMENT_KEY_MISSING" };
+
     const ai = getGeminiClient();
-    // Use a very light model for connection testing
+    // Use the latest flash model for connection testing
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-lite-latest",
+      model: "gemini-3-flash-preview",
       contents: "ping",
       config: { maxOutputTokens: 1 }
     });
-    return !!response.text;
-  } catch (error) {
+    
+    if (response.text) {
+      return { success: true };
+    }
+    return { success: false, error: "EMPTY_RESPONSE" };
+  } catch (error: any) {
     console.error("Protocol verification failed:", error);
-    return false;
+    return { 
+      success: false, 
+      error: error?.message || "CONNECTION_FAILED" 
+    };
   }
 };
 
