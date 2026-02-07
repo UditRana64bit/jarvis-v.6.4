@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { sounds } from '../services/soundService';
 
@@ -38,13 +37,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
       }, step.delay);
     });
 
-    // Check for physical biometric support
+    // Check for physical biometric support (Windows Hello, TouchID, etc.)
     if (window.PublicKeyCredential) {
       PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
         .then((available) => {
           if (available) {
             setHasNativeBiometrics(true);
-            setTimeout(() => setStatus('HARDWARE_SENSOR_DETECTED'), 1800);
+            setTimeout(() => {
+              setStatus('HARDWARE_SENSOR_DETECTED');
+              sounds.playNotification();
+            }, 1800);
           }
         })
         .catch(console.error);
@@ -72,14 +74,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
   const handleNativeBiometric = async () => {
     if (isAuthInProgress) return;
     setIsAuthInProgress(true);
-    setStatus('SYNCING_HARDWARE_PIN');
-    sounds.playScanHum(0.8);
+    setStatus('HANDSHAKING_WITH_OS_KERNEL');
+    sounds.playScanHum(1.0);
 
     try {
       /**
-       * To force the Windows Hello / TouchID / FaceID modal to appear,
-       * we use navigator.credentials.create which registers a new credential.
-       * This triggers the system identity verification (PIN or Biometric).
+       * To force Windows Hello / TouchID / FaceID PIN or Biometric prompt,
+       * we use navigator.credentials.create with userVerification: "required".
        */
       const challenge = new Uint8Array(32);
       window.crypto.getRandomValues(challenge);
@@ -87,21 +88,26 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
       const userID = new Uint8Array(16);
       window.crypto.getRandomValues(userID);
 
-      const publicKeyCredentialCreationOptions: any = {
+      const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
         challenge: challenge,
         rp: {
           name: "Stark Industries JARVIS",
-          id: window.location.hostname,
+          id: window.location.hostname === 'localhost' ? undefined : window.location.hostname,
         },
         user: {
           id: userID,
-          name: "stark@starkindustries.com",
+          name: "tony.stark@starkindustries.com",
           displayName: "Tony Stark",
         },
-        pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+        pubKeyCredParams: [
+          { alg: -7, type: "public-key" }, // ES256
+          { alg: -257, type: "public-key" } // RS256
+        ],
         authenticatorSelection: {
           authenticatorAttachment: "platform",
-          userVerification: "required",
+          userVerification: "required", // CRITICAL: This forces the OS PIN/Biometric modal
+          residentKey: "preferred",
+          requireResidentKey: false,
         },
         timeout: 60000,
         attestation: "none",
@@ -118,18 +124,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
         setTimeout(() => onUnlock('Stark_Primary'), 800);
       }
     } catch (err: any) {
-      console.warn("Native Auth error or cancel:", err);
+      console.warn("Native Auth Error:", err);
       setIsAuthInProgress(false);
       
       if (err.name === 'NotAllowedError') {
-        setStatus('HARDWARE_ACCESS_DENIED');
+        setStatus('USER_CANCELLED_AUTH');
+      } else if (err.name === 'SecurityError') {
+        setStatus('DOMAIN_MISMATCH_ERROR');
       } else {
-        setStatus('NATIVE_AUTH_CANCELLED');
+        setStatus('HARDWARE_AUTH_FAILED');
       }
       
       sounds.playError();
-      // Optional: Auto fallback to simulation if user wants
-      // setTimeout(() => startBiometricScan(), 1000);
+      // On hardware failure, automatically switch to signature mode for fallback
+      setTimeout(() => {
+        setAuthMode('signature');
+        setStatus('FALLBACK_TO_SIGNATURE');
+      }, 1500);
     }
   };
 
