@@ -13,6 +13,14 @@ export interface Message {
   groundingLinks?: Array<{ title: string; uri: string }>;
 }
 
+export interface IntelligenceEntry {
+  id: string;
+  timestamp: string;
+  node: string;
+  message: string;
+  status: 'INFO' | 'OK' | 'WARN' | 'ALERT';
+}
+
 export interface SystemStats {
   cpuUsage: number;
   memoryUsage: number;
@@ -22,4 +30,6 @@ export interface SystemStats {
   neuralSync: number;
   coreTemp: number;
   threatLevel: 'ALPHA' | 'BETA' | 'GAMMA' | 'OMEGA' | 'NULL';
+  activeNodes: number;
+  packetRate: number;
 }

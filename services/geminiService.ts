@@ -19,7 +19,6 @@ export const verifyProtocols = async (): Promise<{ success: boolean; error?: str
     if (!apiKey) return { success: false, error: "ENVIRONMENT_KEY_MISSING" };
 
     const ai = getGeminiClient();
-    // Use the latest flash model for connection testing
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: "ping",
@@ -39,7 +38,54 @@ export const verifyProtocols = async (): Promise<{ success: boolean; error?: str
   }
 };
 
-// Manual base64 decoding as per SDK rules
+/**
+ * Generates grounded content using Google Search.
+ */
+export const generateGroundedResponse = async (prompt: string) => {
+  const ai = getGeminiClient();
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: prompt,
+    config: {
+      tools: [{ googleSearch: {} }],
+      systemInstruction: "You are JARVIS. Address me as Sir. Use a natural, fluid conversational speed. Maintain a professional, sophisticated, and authoritative tone."
+    }
+  });
+
+  const groundingLinks = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any) => ({
+    web: chunk.web || { title: "Source", uri: "#" }
+  })).map(c => ({ title: c.web.title, uri: c.web.uri })) || [];
+
+  return {
+    text: response.text,
+    links: groundingLinks
+  };
+};
+
+/**
+ * Generates visualizations (images) using the Flash Image model.
+ */
+export const generateVisualization = async (prompt: string): Promise<string | null> => {
+  const ai = getGeminiClient();
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash-image",
+    contents: {
+      parts: [{ text: `High-tech HUD blueprint schematic of: ${prompt}. Cinematic lighting, orange and amber color palette, futuristic design.` }]
+    },
+    config: {
+      imageConfig: { aspectRatio: "16:9" }
+    }
+  });
+
+  for (const part of response.candidates[0].content.parts) {
+    if (part.inlineData) {
+      return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+    }
+  }
+  return null;
+};
+
+// Manual base64 decoding
 export function decodeBase64(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -50,7 +96,7 @@ export function decodeBase64(base64: string) {
   return bytes;
 }
 
-// Manual base64 encoding as per SDK rules
+// Manual base64 encoding
 export function encodeBase64(bytes: Uint8Array) {
   let binary = '';
   const len = bytes.byteLength;
@@ -82,9 +128,10 @@ export async function decodeAudioData(
 export async function generateJarvisSpeech(text: string): Promise<string> {
   try {
     const ai = getGeminiClient();
+    // Simplified prompt to avoid "OTHER" safety refusals while maintaining Fenrir's deep voice
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: `Address me as Sir. In a deep, calm, authoritative male voice with a slight Indian accent, say the following in Hinglish. VERY IMPORTANT: Speak SLOWLY and clearly with distinct pauses. Text: ${text}` }] }],
+      contents: [{ parts: [{ text: `Say in a professional, authoritative, and calm voice: ${text}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
@@ -96,14 +143,20 @@ export async function generateJarvisSpeech(text: string): Promise<string> {
     });
 
     const candidate = response.candidates?.[0];
-    if (!candidate) throw new Error("No candidates returned.");
+    if (!candidate || candidate.finishReason !== 'STOP') {
+      throw new Error(`System Protocol Refused. Reason: ${candidate?.finishReason || 'REFUSED'}`);
+    }
+
+    const audioPart = candidate.content.parts.find(p => p.inlineData);
+    const base64Audio = audioPart?.inlineData?.data;
     
-    const base64Audio = candidate.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-    if (!base64Audio) throw new Error("No audio data returned.");
+    if (!base64Audio) {
+      throw new Error("Neural link unstable: Audio component missing from response.");
+    }
     
     return base64Audio;
   } catch (error) {
-    console.error("Jarvis Speech Engine failure:", error);
+    console.error("Jarvis Neural Voice Engine failure:", error);
     throw error;
   }
 }

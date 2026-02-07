@@ -1,9 +1,18 @@
 
 # Jarvis AI Terminal Deployment
 
-This project is optimized for hosting on [Vercel](https://vercel.com).
+This project is optimized for hosting on [Vercel](https://vercel.com) or local development.
 
-## Deployment Steps
+## Local Development (Option 1)
+
+1. Create a `.env.local` file in the project root.
+2. Add your Google Gemini API Key:
+   ```env
+   API_KEY=your_gemini_api_key_here
+   ```
+3. Your local build tool (Vite/Next.js) will automatically inject this into the application.
+
+## Vercel Deployment (Option 2)
 
 1. **Environment Variable**: Ensure you add your Google Gemini API Key in the Vercel dashboard.
    - Go to **Project Settings** > **Environment Variables**.
@@ -11,12 +20,10 @@ This project is optimized for hosting on [Vercel](https://vercel.com).
      - **Key**: `API_KEY`
      - **Value**: `your_gemini_api_key_here`
 
-2. **Framework Preset**: If prompted, you can use "Other" or "Vite" if you have added a build script. For the current raw ESM setup, "Other" works best.
-
-3. **Grounding & Search**: If you enable "Search Grounding" in the UI, ensure your API key has access to the Google Search tool in the Google AI Studio console.
+2. **Framework Preset**: If prompted, use "Vite" or "Other".
 
 ## Features
 - **Jarvis Core**: Animated central AI visualization.
-- **Real-time Streaming**: Chat responses stream in real-time.
-- **Image Synthesis**: Type "generate an image of..." to trigger the generation engine.
-- **Search Grounding**: Real-time web access for up-to-date information.
+- **Voice Link**: Hands-free conversation using Gemini Live API.
+- **Diagnostics**: Real-time system monitoring and environment detection.
+- **Security**: Stark Industries grade biometric login (simulated).
