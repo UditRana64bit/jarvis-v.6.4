@@ -21,6 +21,14 @@ export interface IntelligenceEntry {
   status: 'INFO' | 'OK' | 'WARN' | 'ALERT';
 }
 
+export interface Task {
+  id: string;
+  text: string;
+  completed: boolean;
+  timestamp: Date;
+  priority: 'LOW' | 'MED' | 'HIGH';
+}
+
 export interface SystemStats {
   cpuUsage: number;
   memoryUsage: number;

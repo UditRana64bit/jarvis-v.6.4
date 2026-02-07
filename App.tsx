@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { JarvisCore } from './components/JarvisCore';
 import { DashboardWidgets } from './components/DashboardWidgets';
 import { LoginScreen } from './components/LoginScreen';
-import { Message, MessageRole } from './types';
+import { Message, MessageRole, Task } from './types';
 import { sounds } from './services/soundService';
 import { 
   getGeminiClient, 
@@ -21,6 +21,7 @@ const App: React.FC = () => {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [currentUser, setCurrentUser] = useState<string>('Guest');
   const [messages, setMessages] = useState<Message[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -75,6 +76,60 @@ const App: React.FC = () => {
     sounds.playUiTick();
   };
 
+  const handleTaskCommand = (input: string): boolean => {
+    const lowercase = input.toLowerCase();
+    
+    // Add Task
+    if (lowercase.includes('add task') || lowercase.includes('remind me to')) {
+      const taskText = input.replace(/add task|remind me to|jarvis/gi, '').trim();
+      if (taskText) {
+        const newTask: Task = {
+          id: Math.random().toString(36).substr(2, 9),
+          text: taskText,
+          completed: false,
+          timestamp: new Date(),
+          priority: lowercase.includes('urgent') || lowercase.includes('important') ? 'HIGH' : 'MED'
+        };
+        setTasks(prev => [newTask, ...prev]);
+        addLog(`TASK_LOGGED: ${taskText.substring(0, 15)}...`);
+        sounds.playNotification();
+        return true;
+      }
+    }
+
+    // List Tasks
+    if (lowercase.includes('show tasks') || lowercase.includes('list tasks') || lowercase.includes('what are my tasks')) {
+      const taskList = tasks.length > 0 
+        ? tasks.map((t, i) => `${i+1}. ${t.text}${t.completed ? ' (Done)' : ''}`).join('\n')
+        : "Neural buffer is empty, Sir. No tasks currently logged.";
+      
+      const botMessage: Message = {
+        id: Date.now().toString(),
+        role: MessageRole.JARVIS,
+        content: `Acknowledged, Sir. Current task protocols:\n\n${taskList}`,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, botMessage]);
+      speakResponse(botMessage.content);
+      return true;
+    }
+
+    // Complete Task
+    if (lowercase.includes('complete task') || lowercase.includes('finish task')) {
+      // Simplistic completion by keyword or "the first one"
+      if (tasks.length > 0) {
+        const updated = [...tasks];
+        updated[0].completed = true;
+        setTasks(updated);
+        addLog("TASK_PROTOCOL_FINALIZED");
+        sounds.playAuthSuccess();
+        return true;
+      }
+    }
+
+    return false;
+  };
+
   const handleTextSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!textInput.trim() || isProcessing) return;
@@ -91,6 +146,12 @@ const App: React.FC = () => {
     setTextInput('');
     setIsProcessing(true);
     addLog(`Neural_Input: ${input.substring(0, 20)}...`);
+
+    // Check for task commands first
+    if (handleTaskCommand(input)) {
+      setIsProcessing(false);
+      return;
+    }
 
     try {
       if (input.toLowerCase().includes('visualize') || input.toLowerCase().includes('render') || input.toLowerCase().includes('show me')) {
@@ -246,7 +307,12 @@ const App: React.FC = () => {
               setIsSpeaking(false);
             }
             if (message.serverContent?.outputTranscription) {
-              setCurrentTranscription(prev => prev + message.serverContent!.outputTranscription!.text);
+              const text = message.serverContent.outputTranscription.text;
+              setCurrentTranscription(prev => prev + text);
+              // Check if transcription contains task commands
+              if (text.toLowerCase().includes('add task') || text.toLowerCase().includes('remind me to')) {
+                 handleTaskCommand(text);
+              }
             }
             if (message.serverContent?.turnComplete) {
               if (currentTranscription) {
@@ -267,7 +333,7 @@ const App: React.FC = () => {
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Fenrir' } } },
-          systemInstruction: `You are JARVIS. Address me as Sir. Use a natural conversational speed. Be professional and efficient.`,
+          systemInstruction: `You are JARVIS. Address me as Sir. You have access to a neural task buffer. When I ask to add a task, confirm it concisely. If I ask for my tasks, list them. Be professional and efficient.`,
           outputAudioTranscription: {}
         }
       });
@@ -277,6 +343,16 @@ const App: React.FC = () => {
       setSystemError("SYNC_ERROR");
       cleanupSession();
     }
+  };
+
+  const handleToggleTask = (id: string) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+    sounds.playUiTick();
+  };
+
+  const handleClearTasks = () => {
+    setTasks(prev => prev.filter(t => !t.completed));
+    sounds.playUiTick();
   };
 
   const handleUnlock = async (profile: string) => {
@@ -291,7 +367,6 @@ const App: React.FC = () => {
 
   return (
     <div className={`relative h-screen flex flex-col overflow-hidden bg-[#050201] text-amber-50 transition-all duration-500 ${isSpeaking ? 'brightness-[1.1]' : ''}`}>
-      {/* Background Pulse when speaking */}
       <div className={`fixed inset-0 pointer-events-none transition-opacity duration-1000 ${isSpeaking ? 'opacity-20' : 'opacity-0'}`}>
          <div className="absolute inset-0 bg-amber-500 animate-pulse-fast"></div>
       </div>
@@ -308,7 +383,6 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
-        
         <div className="flex items-center gap-4 sm:gap-6">
           {isProcessing && <span className="text-[8px] font-orbitron text-amber-400 animate-pulse tracking-[0.2em] uppercase">Neural_Processing...</span>}
           <button onClick={() => { setIsSettingsOpen(true); sounds.playUiTick(); }} className="p-2.5 rounded-lg border border-amber-500/20 text-amber-500 hover:bg-amber-500/10 transition-all group">
@@ -325,7 +399,12 @@ const App: React.FC = () => {
 
       <main className="flex-1 flex overflow-hidden relative">
         <aside className="hidden xl:block p-8 border-r border-white/5 glass-dark z-20 w-96 overflow-y-auto">
-          <DashboardWidgets layout="sidebar" />
+          <DashboardWidgets 
+            layout="sidebar" 
+            tasks={tasks} 
+            onToggleTask={handleToggleTask} 
+            onClearTasks={handleClearTasks}
+          />
         </aside>
         
         <section className="flex-1 flex flex-col relative">
@@ -404,7 +483,6 @@ const App: React.FC = () => {
         </section>
       </main>
 
-      {/* Global Settings Panel */}
       <div className={`fixed inset-0 z-50 transition-all duration-700 ${isSettingsOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
         <div className="absolute inset-0 bg-black/90 backdrop-blur-3xl" onClick={() => { setIsSettingsOpen(false); sounds.playUiTick(); }}></div>
         <div className={`absolute right-0 top-0 bottom-0 w-full max-w-lg glass-dark border-l border-amber-500/20 p-10 transform transition-transform duration-700 ease-out ${isSettingsOpen ? 'translate-x-0' : 'translate-x-full'}`}>
@@ -416,7 +494,6 @@ const App: React.FC = () => {
             <div className="glass p-8 rounded-3xl border-amber-500/20 shadow-2xl">
               <h3 className="text-[10px] font-orbitron tracking-[0.4em] text-amber-500/60 uppercase mb-6 font-black">NEURAL_DIAGNOSTICS</h3>
               <button onClick={runDiagnostics} className="w-full py-5 border border-amber-500/40 font-orbitron text-[10px] tracking-[0.5em] uppercase rounded-xl text-amber-400 hover:bg-amber-500/10 hover:border-amber-400 transition-all active:scale-95 shadow-[0_0_20px_rgba(245,158,11,0.1)]">Execute_Core_Handshake</button>
-              
               <div className="mt-8 bg-black/40 rounded-xl p-6 border border-amber-500/5">
                 <h4 className="text-[8px] font-orbitron text-amber-900 uppercase mb-4 tracking-[0.3em]">Telemetry_Log</h4>
                 <div className="space-y-2 h-40 overflow-y-auto font-mono">
@@ -430,7 +507,6 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-            
             <div className="p-4 border-t border-amber-500/10 pt-10">
                <p className="text-[8px] font-orbitron text-amber-900/40 leading-relaxed uppercase tracking-[0.2em]">
                  Unauthorized access to Stark Industries Neural Networks is strictly prohibited. Continuous monitoring active.

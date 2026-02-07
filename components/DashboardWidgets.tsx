@@ -1,13 +1,21 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { SystemStats, IntelligenceEntry } from '../types';
+import { SystemStats, IntelligenceEntry, Task } from '../types';
 import { sounds } from '../services/soundService';
 
 interface DashboardWidgetsProps {
   layout?: 'sidebar' | 'horizontal';
+  tasks?: Task[];
+  onToggleTask?: (id: string) => void;
+  onClearTasks?: () => void;
 }
 
-export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ layout = 'sidebar' }) => {
+export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ 
+  layout = 'sidebar', 
+  tasks = [], 
+  onToggleTask,
+  onClearTasks
+}) => {
   const [stats, setStats] = useState<SystemStats>({
     cpuUsage: 12,
     memoryUsage: 4.2,
@@ -46,7 +54,6 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ layout = 'si
     "QUANTUM_ENCRYPTION_SYNC"
   ];
 
-  // Camera Access for "Tactical HUD"
   useEffect(() => {
     if (isSentryActive && !cameraStream) {
       navigator.mediaDevices.getUserMedia({ video: true, audio: false })
@@ -67,7 +74,6 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ layout = 'si
     };
   }, [isSentryActive]);
 
-  // Intelligence Feed Generator
   useEffect(() => {
     const generateEntry = () => {
       const entry: IntelligenceEntry = {
@@ -85,7 +91,6 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ layout = 'si
     return () => clearInterval(interval);
   }, []);
 
-  // System Stats Updates
   useEffect(() => {
     const interval = setInterval(() => {
       setStats(prev => ({
@@ -134,12 +139,11 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ layout = 'si
   };
 
   return (
-    <div className={`space-y-6 md:space-y-8 ${layout === 'sidebar' ? 'w-full' : 'grid grid-cols-1 md:grid-cols-2 gap-8'}`}>
+    <div className={`space-y-6 md:space-y-8 ${layout === 'sidebar' ? 'w-full pb-20' : 'grid grid-cols-1 md:grid-cols-2 gap-8'}`}>
       
       {/* Vitals Hub */}
       <div className="glass p-6 rounded-2xl relative overflow-hidden group shadow-[0_0_50px_rgba(0,0,0,0.5)]">
         <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-amber-500/50 to-transparent"></div>
-        
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-amber-500 text-[10px] font-orbitron tracking-[0.4em] uppercase font-bold flex items-center gap-3">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
@@ -147,28 +151,65 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ layout = 'si
           </h3>
           <span className="text-[7px] font-orbitron text-amber-500/30 tracking-widest uppercase">CORE_STARK_45</span>
         </div>
-        
         <div className="grid grid-cols-2 gap-6 mb-8">
           <CircularMetric label="Reactor" value={stats.arcReactorEnergy} color="text-amber-500" />
           <CircularMetric label="Synapse" value={stats.neuralSync} color="text-orange-400" />
         </div>
-
         <div className="space-y-4">
           <LinearMetric label="THERMAL_LOAD" value={`${stats.coreTemp.toFixed(1)}°C`} progress={stats.coreTemp * 2.5} color="from-amber-600 to-amber-400" />
           <LinearMetric label="NEURAL_TRAFFIC" value={`${stats.packetRate} p/s`} progress={(stats.packetRate - 1300) / 4} color="from-orange-600 to-amber-300" />
         </div>
       </div>
 
+      {/* Task Log Widget */}
+      <div className="glass p-6 rounded-2xl border border-amber-500/10 bg-black/50 relative overflow-hidden">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-amber-500 text-[10px] font-orbitron tracking-[0.4em] uppercase font-bold flex items-center gap-3">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+            TASK_PROTOCOL
+          </h3>
+          <button onClick={() => { onClearTasks?.(); sounds.playUiTick(); }} className="text-[7px] font-orbitron text-amber-900 hover:text-amber-500 transition-colors uppercase tracking-widest">PURGE_COMPLETE</button>
+        </div>
+
+        <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+          {tasks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 opacity-20">
+               <span className="text-[8px] font-orbitron tracking-[0.4em] text-amber-500 animate-pulse">NEURAL_BUFFER_EMPTY</span>
+            </div>
+          ) : (
+            tasks.map((task) => (
+              <div 
+                key={task.id} 
+                onClick={() => { onToggleTask?.(task.id); sounds.playUiTick(); }}
+                className={`group flex items-start gap-4 p-3 rounded-xl border transition-all cursor-pointer ${task.completed ? 'bg-amber-500/5 border-amber-500/10 opacity-40' : 'bg-white/5 border-white/5 hover:border-amber-500/30'}`}
+              >
+                <div className={`mt-1 w-3 h-3 rounded-full border flex items-center justify-center transition-all ${task.completed ? 'bg-amber-500 border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.6)]' : 'border-amber-500/40 group-hover:border-amber-500'}`}>
+                  {task.completed && <svg className="w-2 h-2 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" /></svg>}
+                </div>
+                <div className="flex-1">
+                   <p className={`text-[11px] font-mono tracking-wider transition-all ${task.completed ? 'line-through text-amber-500/40' : 'text-amber-100'}`}>
+                     {task.text}
+                   </p>
+                   <div className="flex justify-between items-center mt-1">
+                      <span className="text-[6px] font-orbitron text-amber-800 uppercase tracking-widest">{task.priority}_PRIORITY</span>
+                      <span className="text-[6px] font-mono text-amber-900">{new Date(task.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                   </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       {/* Intelligence Feed */}
-      <div className="glass p-6 rounded-2xl border border-amber-500/10 bg-black/50 relative overflow-hidden h-72">
+      <div className="glass p-6 rounded-2xl border border-amber-500/10 bg-black/50 relative overflow-hidden h-64">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-[10px] font-orbitron tracking-[0.4em] text-amber-500/60 uppercase">TACTICAL_FEED</h3>
+          <h3 className="text-[10px] font-orbitron tracking-[0.4em] text-amber-500/60 uppercase font-bold">TACTICAL_FEED</h3>
           <div className="flex gap-1">
              {[...Array(4)].map((_, i) => <div key={i} className="w-1 h-1 bg-amber-500/30 rounded-full animate-pulse" style={{ animationDelay: `${i * 0.15}s` }}></div>)}
           </div>
         </div>
-        
-        <div ref={feedRef} className="space-y-3 h-44 overflow-y-hidden">
+        <div ref={feedRef} className="space-y-3 h-40 overflow-y-hidden">
           {feed.map((entry) => (
             <div key={entry.id} className="flex flex-col gap-1 animate-fade-in border-l-2 border-amber-500/10 pl-4 py-1">
               <div className="flex justify-between items-center text-[7px] font-mono">
@@ -184,17 +225,6 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ layout = 'si
             </div>
           ))}
         </div>
-        
-        {/* Dynamic Pulse Bar */}
-        <div className="absolute bottom-0 left-0 w-full flex items-end gap-[1px] h-6 px-1 opacity-20">
-           {[...Array(32)].map((_, i) => (
-             <div 
-               key={i} 
-               className="flex-1 bg-amber-500/60 rounded-t-sm transition-all duration-300" 
-               style={{ height: `${15 + Math.random() * 85}%` }}
-             ></div>
-           ))}
-        </div>
       </div>
 
       {/* Sentry HUD / Visualizer */}
@@ -209,7 +239,6 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ layout = 'si
                <span className={`w-1 h-1 rounded-full ${isSentryActive ? 'bg-orange-500 animate-ping' : 'bg-amber-950'}`}></span>
             </div>
           </div>
-          
           <button
             onMouseDown={startAuth}
             onMouseUp={stopAuth}
@@ -228,14 +257,11 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ layout = 'si
             </div>
           </button>
         </div>
-
-        {/* Visualizer Frame */}
         <div className="relative aspect-video w-full bg-[#050301] rounded-2xl border border-amber-900/30 overflow-hidden flex items-center justify-center">
           {cameraStream && isSentryActive ? (
             <div className="relative w-full h-full grayscale sepia brightness-150 contrast-125">
               <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover opacity-60" />
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_40%,black_100%)]"></div>
-              {/* Scan Overlays */}
               <div className="absolute inset-0 flex flex-col justify-between p-4 pointer-events-none">
                  <div className="flex justify-between">
                     <div className="w-8 h-8 border-l-2 border-t-2 border-amber-400/40"></div>
@@ -264,12 +290,13 @@ export const DashboardWidgets: React.FC<DashboardWidgetsProps> = ({ layout = 'si
               </div>
             </>
           )}
-          {/* Scanline overlay for tactical feel */}
           <div className="absolute inset-0 scanline opacity-30 pointer-events-none"></div>
         </div>
       </div>
 
       <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(251, 191, 36, 0.1); border-radius: 10px; }
         @keyframes sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .animate-sweep { animation: sweep 6s linear infinite; }
         @keyframes ping-slow { 0% { transform: scale(0.8); opacity: 0; } 50% { opacity: 0.3; } 100% { transform: scale(1.5); opacity: 0; } }
