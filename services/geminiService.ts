@@ -3,7 +3,7 @@ import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { Message } from "../types";
 
 export const getGeminiClient = () => {
-  const apiKey = process.env.API_KEY || '';
+  const apiKey = import.meta.env.VITE_API_KEY || '';
   if (!apiKey) {
     throw new Error("AUTH_KEY_NOT_SET");
   }
