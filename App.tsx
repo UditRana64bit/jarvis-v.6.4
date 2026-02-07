@@ -323,6 +323,78 @@ const App: React.FC = () => {
         </div>
       </header>
 
+<<<<<<< HEAD
+=======
+      {/* Settings Panel with Diagnostic Log */}
+      <div className={`fixed inset-0 z-50 transition-all duration-500 ${isSettingsOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setIsSettingsOpen(false)}></div>
+        <div className={`absolute right-0 top-0 bottom-0 w-full max-w-md glass-dark border-l border-amber-500/20 p-8 transform transition-transform duration-500 ${isSettingsOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+          <div className="flex justify-between items-center mb-12">
+            <h2 className="font-orbitron text-xl tracking-[0.3em] text-amber-500 uppercase">System_Config</h2>
+            <button onClick={() => setIsSettingsOpen(false)} className="text-amber-900 hover:text-amber-500"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+          </div>
+
+          <div className="space-y-12">
+            <div className="space-y-6">
+              <h3 className="text-[10px] font-orbitron tracking-widest text-amber-800 uppercase">Neural_Link_Protocol</h3>
+              <div className="glass p-6 rounded-xl border-amber-500/10 space-y-6">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono text-amber-500/60 uppercase">Handshake_Status</span>
+                  <span className={`text-[10px] font-orbitron uppercase tracking-widest ${needsKeySync ? 'text-red-500 animate-pulse' : 'text-green-500'}`}>
+                    {needsKeySync ? 'UNAUTHORIZED' : 'STABLE'}
+                  </span>
+                </div>
+                
+                <div className="space-y-3">
+                  {!isVercel ? (
+                    <button 
+                      onClick={() => (window as any).aistudio.openSelectKey()}
+                      className="w-full py-4 bg-amber-500 text-black font-orbitron text-[10px] tracking-widest uppercase rounded-lg hover:bg-amber-400 shadow-lg"
+                    >
+                      Sync AI Studio Key
+                    </button>
+                  ) : (
+                    <div className="w-full py-4 bg-amber-950/20 border border-amber-500/20 text-amber-500/60 font-orbitron text-[8px] tracking-[0.2em] text-center uppercase rounded-lg">
+                      Key Managed by Vercel Node
+                    </div>
+                  )}
+                  
+                  <button 
+                    onClick={runDiagnostics}
+                    disabled={diagnosticStatus === 'testing'}
+                    className={`w-full py-4 border font-orbitron text-[10px] tracking-widest uppercase rounded-lg transition-all ${diagnosticStatus === 'testing' ? 'opacity-50 border-blue-500 text-blue-400' : diagnosticStatus === 'success' ? 'border-green-500 text-green-500' : diagnosticStatus === 'fail' ? 'border-red-500 text-red-500' : 'border-amber-500/30 text-amber-500 hover:bg-amber-500/10'}`}
+                  >
+                    {diagnosticStatus === 'testing' ? 'Pinging Core...' : 'Run Diagnostics'}
+                  </button>
+                </div>
+
+                <div className="bg-black/40 p-3 rounded border border-white/5 space-y-2 min-h-[100px]">
+                  <p className="text-[8px] font-orbitron text-amber-800 uppercase mb-2">Diagnostic_Log:</p>
+                  {diagnosticLog.length === 0 ? (
+                    <p className="text-[7px] font-mono text-amber-900 italic">No telemetry data...</p>
+                  ) : (
+                    diagnosticLog.map((log, i) => (
+                      <p key={i} className="text-[7px] font-mono text-amber-500/80 uppercase tracking-tighter">[{new Date().toLocaleTimeString()}]{log}</p>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+               <h3 className="text-[10px] font-orbitron tracking-widest text-amber-800 uppercase">Tactical_Telemetry</h3>
+               <div className="grid grid-cols-2 gap-4">
+                  <TelemetryCard label="Latency" value="18ms" />
+                  <TelemetryCard label="Packet_Loss" value="0.0%" />
+                  <TelemetryCard label="Security_Tier" value={isVercel ? 'DEPLOYED' : 'LOCAL'} />
+                  <TelemetryCard label="Engine" value="GEMINI_3" />
+               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+>>>>>>> b021bf0045df91920952f655e99464a1974300d8
       <main className="flex-1 flex overflow-hidden relative">
         <aside className="hidden xl:block p-8 border-r border-white/5 glass-dark z-20 w-96 overflow-y-auto">
           <DashboardWidgets layout="sidebar" />
