@@ -29,6 +29,13 @@ export interface Task {
   priority: 'LOW' | 'MED' | 'HIGH';
 }
 
+export interface MemoryEntry {
+  id: string;
+  fact: string;
+  timestamp: Date;
+  importance: number;
+}
+
 export interface SystemStats {
   cpuUsage: number;
   memoryUsage: number;

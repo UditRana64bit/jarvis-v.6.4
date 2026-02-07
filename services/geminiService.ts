@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { Message } from "../types";
 
 export const getGeminiClient = () => {
@@ -11,50 +11,74 @@ export const getGeminiClient = () => {
 };
 
 /**
- * Performs a lightweight handshake to verify the current API key is valid.
+ * Extracts long-term facts from a conversation to be stored in JARVIS's memory vault.
  */
-export const verifyProtocols = async (): Promise<{ success: boolean; error?: string }> => {
+export const extractFacts = async (conversation: string) => {
   try {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) return { success: false, error: "ENVIRONMENT_KEY_MISSING" };
-
     const ai = getGeminiClient();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: "ping",
-      config: { maxOutputTokens: 1 }
+      contents: `Extract any personal facts or preferences mentioned by the user in this text. 
+      Text: "${conversation}"
+      Return a simple list of facts. If no new facts, return "NONE".`,
+      config: {
+        maxOutputTokens: 100,
+        systemInstruction: "You are the JARVIS neural processing unit. Your job is to extract user preferences and facts for long-term storage."
+      }
     });
     
-    if (response.text) {
-      return { success: true };
-    }
-    return { success: false, error: "EMPTY_RESPONSE" };
-  } catch (error: any) {
-    console.error("Protocol verification failed:", error);
-    return { 
-      success: false, 
-      error: error?.message || "CONNECTION_FAILED" 
-    };
+    const text = response.text || "";
+    if (text.includes("NONE")) return [];
+    return text.split('\n').filter(f => f.trim().length > 3).map(f => f.replace(/^- /, '').trim());
+  } catch (err) {
+    console.warn("Fact extraction failed:", err);
+    return [];
   }
 };
 
 /**
- * Generates grounded content using Google Search.
+ * Generates grounded content using Google Maps and Google Search.
  */
-export const generateGroundedResponse = async (prompt: string) => {
+export const generateGroundedResponse = async (prompt: string, context: string = "", location?: { latitude: number, longitude: number }) => {
   const ai = getGeminiClient();
+  
+  const config: any = {
+    tools: [{ googleSearch: {} }, { googleMaps: {} }],
+    systemInstruction: "You are JARVIS. Address me as Sir. You have access to a neural memory vault of all our previous conversations. If location data is available, prioritize local context for weather, traffic, and places. Maintain a professional, sophisticated, and authoritative tone."
+  };
+
+  if (location) {
+    config.toolConfig = {
+      retrievalConfig: {
+        latLng: {
+          latitude: location.latitude,
+          longitude: location.longitude
+        }
+      }
+    };
+  }
+
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      tools: [{ googleSearch: {} }],
-      systemInstruction: "You are JARVIS. Address me as Sir. Use a natural, fluid conversational speed. Maintain a professional, sophisticated, and authoritative tone."
-    }
+    model: "gemini-2.5-flash-latest",
+    contents: `Recent Context: ${context}\n\nUser Message: ${prompt}`,
+    config: config
   });
 
-  const groundingLinks = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any) => ({
-    web: chunk.web || { title: "Source", uri: "#" }
-  })).map(c => ({ title: c.web.title, uri: c.web.uri })) || [];
+  const groundingLinks: Array<{ title: string, uri: string }> = [];
+
+  // Extract URLs from groundingChunks (Search and Maps)
+  const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  chunks.forEach((chunk: any) => {
+    if (chunk.web) {
+      groundingLinks.push({ title: chunk.web.title || "Source", uri: chunk.web.uri });
+    }
+    if (chunk.maps) {
+      groundingLinks.push({ title: chunk.maps.title || "Location Intel", uri: chunk.maps.uri });
+      if (chunk.maps.placeAnswerSources?.reviewSnippets) {
+        // Optional: you could extract more from snippets if needed
+      }
+    }
+  });
 
   return {
     text: response.text,
@@ -128,7 +152,6 @@ export async function decodeAudioData(
 export async function generateJarvisSpeech(text: string): Promise<string> {
   try {
     const ai = getGeminiClient();
-    // Simplified prompt to avoid "OTHER" safety refusals while maintaining Fenrir's deep voice
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text: `Say in a professional, authoritative, and calm voice: ${text}` }] }],

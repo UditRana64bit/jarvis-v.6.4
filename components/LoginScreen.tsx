@@ -1,146 +1,144 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { sounds } from '../services/soundService';
+import { decodeBase64, encodeBase64 } from '../services/geminiService';
 
 interface LoginScreenProps {
   onUnlock: (profile: string) => void;
 }
 
-type AuthMode = 'biometric' | 'signature';
+type AuthMode = 'biometric' | 'signature' | 'pin' | null;
+
+interface Point {
+  x: number;
+  y: number;
+}
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
-  const [authMode, setAuthMode] = useState<AuthMode>('biometric');
+  const [authMode, setAuthMode] = useState<AuthMode>(null);
   const [progress, setProgress] = useState(0);
   const [isAuthInProgress, setIsAuthInProgress] = useState(false);
-  const [status, setStatus] = useState('INITIALIZING_CORE');
+  const [status, setStatus] = useState('SYSTEM_IDLE');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isBooted, setIsBooted] = useState(false);
   const [hasNativeBiometrics, setHasNativeBiometrics] = useState(false);
   
+  // PIN Logic States
+  const [pin, setPin] = useState<string>('');
+  const [isPinError, setIsPinError] = useState(false);
+  const [pinNodes, setPinNodes] = useState<Point[]>([]);
+  const keypadRef = useRef<HTMLDivElement>(null);
+
+  // Signature States
   const [paths, setPaths] = useState<Array<{x: number, y: number}[]>>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const canvasRef = useRef<SVGSVGElement>(null);
   const timerRef = useRef<number | null>(null);
 
-  // Boot Sequence & Hardware Check
+  const CORRECT_PIN = "4512367980";
+
   useEffect(() => {
     const sequence = [
-      { msg: 'LOADING_KERNEL', delay: 400 },
+      { msg: 'INITIALIZING_CORE', delay: 400 },
       { msg: 'SYNCING_NEURAL_ARRAY', delay: 800 },
-      { msg: 'ENCRYPTING_STARK_TUNNEL', delay: 1200 },
-      { msg: 'PROTOCOLS_LOCKED', delay: 1600 }
+      { msg: 'AWAITING_AUTHENTICATION', delay: 1200 }
     ];
 
-    sequence.forEach((step, i) => {
+    sequence.forEach((step) => {
       setTimeout(() => {
         setStatus(step.msg);
         sounds.playUiTick();
       }, step.delay);
     });
 
-    // Check for physical biometric support (Windows Hello, TouchID, etc.)
     if (window.PublicKeyCredential) {
       PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
         .then((available) => {
-          if (available) {
-            setHasNativeBiometrics(true);
-            setTimeout(() => {
-              setStatus('HARDWARE_SENSOR_DETECTED');
-              sounds.playNotification();
-            }, 1800);
-          }
+          if (available) setHasNativeBiometrics(true);
         })
         .catch(console.error);
     }
 
-    setTimeout(() => setIsBooted(true), 2000);
+    setTimeout(() => setIsBooted(true), 1500);
 
-    const clockInterval = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
+    const clockInterval = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(clockInterval);
   }, []);
 
-  const particles = useMemo(() => {
-    return Array.from({ length: 24 }).map((_, i) => ({
-      id: i,
-      angle: Math.random() * 360,
-      distance: 30 + Math.random() * 60,
-      size: 0.8 + Math.random() * 2,
-      speed: 0.8 + Math.random() * 2.2,
-      rotationSpeed: (Math.random() - 0.5) * 4
-    }));
-  }, []);
+  // Physical Keyboard Listener
+  useEffect(() => {
+    if (authMode === 'pin' && !isAuthInProgress) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (/^[0-9]$/.test(e.key)) {
+          // Find the button to simulate the click for node coordinates
+          const btn = document.querySelector(`button[data-val="${e.key}"]`);
+          if (btn) {
+            const mousedownEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window });
+            btn.dispatchEvent(mousedownEvent);
+          }
+        } else if (e.key === 'Backspace' || e.key === 'Delete') {
+          setPin(prev => prev.slice(0, -1));
+          setPinNodes(prev => prev.slice(0, -1));
+          sounds.playUiTick();
+        } else if (e.key === 'Escape') {
+          handleReturn();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [authMode, isAuthInProgress]);
 
   const handleNativeBiometric = async () => {
     if (isAuthInProgress) return;
     setIsAuthInProgress(true);
-    setStatus('HANDSHAKING_WITH_OS_KERNEL');
+    const storedCredId = localStorage.getItem('stark_auth_cred_id');
+    setStatus(storedCredId ? 'VERIFYING_VAULT_KEY' : 'REGISTERING_STARK_PROTOCOL');
     sounds.playScanHum(1.0);
 
     try {
-      /**
-       * To force Windows Hello / TouchID / FaceID PIN or Biometric prompt,
-       * we use navigator.credentials.create with userVerification: "required".
-       */
       const challenge = new Uint8Array(32);
       window.crypto.getRandomValues(challenge);
-      
-      const userID = new Uint8Array(16);
-      window.crypto.getRandomValues(userID);
 
-      const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
-        challenge: challenge,
-        rp: {
-          name: "Stark Industries JARVIS",
-          id: window.location.hostname === 'localhost' ? undefined : window.location.hostname,
-        },
-        user: {
-          id: userID,
-          name: "tony.stark@starkindustries.com",
-          displayName: "Tony Stark",
-        },
-        pubKeyCredParams: [
-          { alg: -7, type: "public-key" }, // ES256
-          { alg: -257, type: "public-key" } // RS256
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: "platform",
-          userVerification: "required", // CRITICAL: This forces the OS PIN/Biometric modal
-          residentKey: "preferred",
-          requireResidentKey: false,
-        },
-        timeout: 60000,
-        attestation: "none",
-      };
-
-      const credential = await navigator.credentials.create({
-        publicKey: publicKeyCredentialCreationOptions
-      });
-
-      if (credential) {
-        setStatus('HARDWARE_AUTH_SUCCESS');
-        sounds.playAuthSuccess();
-        setProgress(100);
-        setTimeout(() => onUnlock('Stark_Primary'), 800);
+      if (storedCredId) {
+        const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
+          challenge: challenge,
+          allowCredentials: [{ id: decodeBase64(storedCredId), type: 'public-key' }],
+          userVerification: "required",
+          timeout: 60000,
+        };
+        const assertion = await navigator.credentials.get({ publicKey: publicKeyCredentialRequestOptions });
+        if (assertion) {
+          setStatus('IDENTITY_VERIFIED');
+          sounds.playAuthSuccess();
+          setProgress(100);
+          setTimeout(() => onUnlock('Stark_Primary'), 800);
+        }
+      } else {
+        const userID = new Uint8Array(16);
+        window.crypto.getRandomValues(userID);
+        const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
+          challenge: challenge,
+          rp: { name: "Stark Industries JARVIS", id: window.location.hostname === 'localhost' ? undefined : window.location.hostname },
+          user: { id: userID, name: "tony.stark@starkindustries.com", displayName: "Tony Stark" },
+          pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+          authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred", requireResidentKey: false },
+          timeout: 60000,
+          attestation: "none",
+        };
+        const credential = await navigator.credentials.create({ publicKey: publicKeyCredentialCreationOptions }) as PublicKeyCredential;
+        if (credential) {
+          localStorage.setItem('stark_auth_cred_id', encodeBase64(new Uint8Array(credential.rawId)));
+          setStatus('PROTOCOL_REGISTERED');
+          sounds.playAuthSuccess();
+          setProgress(100);
+          setTimeout(() => onUnlock('Stark_Primary'), 800);
+        }
       }
     } catch (err: any) {
-      console.warn("Native Auth Error:", err);
       setIsAuthInProgress(false);
-      
-      if (err.name === 'NotAllowedError') {
-        setStatus('USER_CANCELLED_AUTH');
-      } else if (err.name === 'SecurityError') {
-        setStatus('DOMAIN_MISMATCH_ERROR');
-      } else {
-        setStatus('HARDWARE_AUTH_FAILED');
-      }
-      
+      setStatus('HARDWARE_AUTH_FAILED');
       sounds.playError();
-      // On hardware failure, automatically switch to signature mode for fallback
-      setTimeout(() => {
-        setAuthMode('signature');
-        setStatus('FALLBACK_TO_SIGNATURE');
-      }, 1500);
     }
   };
 
@@ -148,32 +146,81 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
     if (!isBooted || isAuthInProgress) return;
     setIsAuthInProgress(true);
     setStatus('SCANNING_RETINA_DATA');
-    sounds.playScanHum(3);
+    sounds.playScanHum(1);
     
     let currentProgress = 0;
+    // Faster scanning logic
     timerRef.current = window.setInterval(() => {
-      currentProgress += Math.random() * 4 + 1;
+      currentProgress += Math.random() * 15 + 10; // Accelerated increment
       if (currentProgress >= 100) {
         setProgress(100);
         if (timerRef.current) clearInterval(timerRef.current);
         setStatus('LINK_SECURED: STARK_MK_45');
         sounds.playAuthSuccess();
-        setTimeout(() => onUnlock('Stark'), 600);
+        setTimeout(() => onUnlock('Stark'), 400); // Shorter exit delay
       } else {
         setProgress(currentProgress);
-        if (currentProgress > 30 && currentProgress < 35) setStatus('MAPPING_PUPIL_RESPONSE');
-        if (currentProgress > 65 && currentProgress < 70) setStatus('VERIFYING_CLEARANCE_LVL_10');
       }
-    }, 45);
+    }, 25); // Faster interval (25ms instead of 45ms)
   };
 
-  const stopBiometricScan = () => {
-    if (progress < 100) {
-      setIsAuthInProgress(false);
-      setProgress(0);
-      setStatus('PROTOCOLS_LOCKED');
-      if (timerRef.current) clearInterval(timerRef.current);
+  const handlePinInput = (num: string, e: React.MouseEvent | React.TouchEvent) => {
+    if (isAuthInProgress || pin.length >= CORRECT_PIN.length) return;
+    
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const keypadRect = keypadRef.current?.getBoundingClientRect();
+    if (keypadRect) {
+      const x = rect.left + rect.width / 2 - keypadRect.left;
+      const y = rect.top + rect.height / 2 - keypadRect.top;
+      setPinNodes(prev => [...prev, { x, y }]);
     }
+
+    sounds.playUiTick();
+    const newPin = pin + num;
+    setPin(newPin);
+    
+    if (newPin.length === CORRECT_PIN.length) verifyPin(newPin);
+  };
+
+  const verifyPin = (code: string) => {
+    setIsAuthInProgress(true);
+    setStatus('VALIDATING_NEURAL_TOKEN...');
+    sounds.playScanHum(1.0);
+    
+    setTimeout(() => {
+      if (code === CORRECT_PIN) {
+        setStatus('UPLINK_ESTABLISHED');
+        sounds.playAuthSuccess();
+        setProgress(100);
+        setTimeout(() => onUnlock('Stark_Primary'), 800);
+      } else {
+        setIsPinError(true);
+        sounds.playError();
+        setStatus('ACCESS_TOKEN_INVALID');
+        setTimeout(() => {
+          setIsPinError(false);
+          setIsAuthInProgress(false);
+          setPin('');
+          setPinNodes([]);
+          setStatus('AWAITING_AUTHENTICATION');
+        }, 1200);
+      }
+    }, 1000);
+  };
+
+  const selectMode = (mode: AuthMode) => {
+    sounds.playUiTick();
+    setAuthMode(mode);
+    setStatus(mode === 'biometric' ? 'HOLD_FOR_LINK' : mode === 'signature' ? 'SIG_WAITING' : 'WAITING_FOR_TOKEN_SEQUENCE');
+  };
+
+  const handleReturn = () => {
+    sounds.playUiTick();
+    setAuthMode(null);
+    setPin('');
+    setPinNodes([]);
+    setPaths([]);
+    setStatus('AWAITING_AUTHENTICATION');
   };
 
   const getPos = (e: React.MouseEvent | React.TouchEvent) => {
@@ -184,277 +231,169 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
     return { x: clientX - rect.left, y: clientY - rect.top };
   };
 
-  const handleSignatureStart = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isBooted || isAuthInProgress) return;
-    setIsDrawing(true);
-    const pos = getPos(e);
-    setPaths(prev => [...prev, [pos]]);
-    sounds.playUiTick();
-  };
-
-  const handleSignatureMove = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDrawing) return;
-    const pos = getPos(e);
-    setPaths(prev => {
-      const lastPath = prev[prev.length - 1];
-      const lastPoint = lastPath[lastPath.length - 1];
-      if (lastPoint && Math.abs(lastPoint.x - pos.x) < 2 && Math.abs(lastPoint.y - pos.y) < 2) return prev;
-      return [...prev.slice(0, -1), [...lastPath, pos]];
-    });
-    if (Math.random() > 0.92) sounds.playUiTick();
-  };
-
-  const handleSignatureEnd = () => setIsDrawing(false);
-
   const verifySignature = () => {
-    if (paths.length === 0) {
-      sounds.playError();
-      return setStatus('SIG_INPUT_REQUIRED');
-    }
+    if (paths.length === 0) return;
     setIsAuthInProgress(true);
     setStatus('ANALYTIC_PARSING...');
-    sounds.playScanHum(3.0);
-    
-    let current = 0;
-    const interval = setInterval(() => {
-      current += 2;
-      setProgress(current);
-      
-      if (current === 20) setStatus('EXTRACTING_VERTICES');
-      if (current === 40) setStatus('NEURAL_PATTERN_MATCH');
-      if (current === 60) setStatus('SYMMETRY_CHECK: 99.2%');
-      if (current === 85) setStatus('DECRYPTING_STARK_HASH');
-
-      if (current >= 100) {
-        clearInterval(interval);
-        setStatus('ACCESS_GRANTED');
-        sounds.playAuthSuccess();
-        setTimeout(() => onUnlock('Authorized_User'), 800);
-      }
-    }, 40);
-  };
-
-  const switchMode = (mode: AuthMode) => {
-    if (isAuthInProgress) return;
-    setAuthMode(mode);
-    setProgress(0);
-    setPaths([]);
-    setStatus(mode === 'biometric' ? 'PROTOCOLS_LOCKED' : 'SIG_WAITING');
-    sounds.playUiTick();
+    sounds.playScanHum(1.5); // Slightly faster sound
+    setTimeout(() => {
+      setStatus('ACCESS_GRANTED');
+      sounds.playAuthSuccess();
+      setTimeout(() => onUnlock('Authorized_User'), 600);
+    }, 1000); // Faster processing time
   };
 
   const formattedTime = currentTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const formattedDate = currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
-
-  const vertices = useMemo(() => {
-    const v: {x: number, y: number}[] = [];
-    paths.forEach(p => {
-      if (p.length > 0) v.push(p[0]);
-      if (p.length > 5) v.push(p[Math.floor(p.length / 2)]);
-      if (p.length > 1) v.push(p[p.length - 1]);
-    });
-    return v;
-  }, [paths]);
 
   return (
-    <div className={`fixed inset-0 z-[100] bg-[#050201] flex flex-col items-center justify-center p-6 sm:p-12 select-none overflow-hidden touch-none transition-all duration-1000 ${isBooted ? 'opacity-100 scale-100' : 'opacity-80 scale-105'}`}>
-      
+    <div className={`fixed inset-0 z-[100] bg-[#050201] flex flex-col items-center justify-center p-6 select-none overflow-y-auto custom-scrollbar transition-all duration-1000 ${isBooted ? 'opacity-100 scale-100' : 'opacity-80 scale-105'}`}>
       <div className="absolute inset-0 bg-grid opacity-10 pointer-events-none"></div>
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.06),transparent_70%)] pointer-events-none"></div>
       
-      <div className="absolute top-8 left-8 w-24 h-24 border-l-2 border-t-2 border-amber-500/20 opacity-40 animate-pulse-slow"></div>
-      <div className="absolute top-8 right-8 w-24 h-24 border-r-2 border-t-2 border-amber-500/20 opacity-40 animate-pulse-slow"></div>
-      <div className="absolute bottom-8 left-8 w-24 h-24 border-l-2 border-b-2 border-amber-500/20 opacity-40 animate-pulse-slow"></div>
-      <div className="absolute bottom-8 right-8 w-24 h-24 border-r-2 border-b-2 border-amber-500/20 opacity-40 animate-pulse-slow"></div>
-
-      <div className={`absolute top-12 right-12 text-right transition-all duration-1000 transform ${isBooted ? 'translate-y-0 opacity-100' : '-translate-y-10 opacity-0'}`}>
-        <div className="text-[9px] font-orbitron text-amber-500/30 tracking-[0.4em] mb-1 uppercase">Chronos_Sync_MK45</div>
-        <div className="text-5xl font-orbitron font-black text-amber-500 tracking-tighter drop-shadow-[0_0_20px_rgba(245,158,11,0.4)]">
-          {formattedTime}
-        </div>
-        <div className="text-[8px] font-mono text-amber-600/50 tracking-[0.3em] mt-1">{formattedDate}</div>
-      </div>
-
-      <div className="relative z-10 flex flex-col items-center gap-12 w-full max-w-xl">
-        <div className="text-center">
-          <h1 className={`font-orbitron text-5xl sm:text-7xl font-black tracking-[0.8em] text-amber-500 transition-all duration-1000 ${isBooted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'} hologram-flicker`}>
-            JARVIS_REFINE
+      {/* Container to handle layout changes smoothly */}
+      <div className="relative z-10 flex flex-col items-center w-full max-w-4xl min-h-[70vh]">
+        
+        {/* Header & Chronometer (Only visible when authMode is null) */}
+        <div className={`flex flex-col items-center transition-all duration-700 ease-in-out ${authMode !== null ? 'opacity-0 -translate-y-20 pointer-events-none h-0 overflow-hidden' : 'opacity-100 translate-y-0 mb-12 sm:mb-20'}`}>
+          <div className="text-4xl sm:text-6xl font-orbitron font-black text-amber-500 tracking-[0.2em] drop-shadow-[0_0_20px_rgba(245,158,11,0.4)] mb-4">
+            {formattedTime}
+          </div>
+          <div className="text-[10px] font-orbitron text-amber-600/40 tracking-[0.6em] mb-12 uppercase">{currentTime.toDateString().toUpperCase()}</div>
+          
+          {/* JARVIS logo with subtle zoom-in animation */}
+          <h1 className={`font-orbitron text-5xl sm:text-7xl font-black tracking-[0.4em] text-amber-500 hologram-flicker transition-all duration-1000 transform ${isBooted ? 'scale-100 opacity-100' : 'scale-75 opacity-0'}`}>
+            JARVIS
           </h1>
-          <div className="flex flex-col items-center gap-4 mt-6">
-            <div className="flex items-center justify-center gap-6">
-              <span className="h-[1px] w-12 bg-amber-500/10"></span>
-              <p className="font-orbitron text-[10px] tracking-[0.6em] text-amber-600 uppercase font-black animate-pulse">
-                {status}
-              </p>
-              <span className="h-[1px] w-12 bg-amber-500/10"></span>
-            </div>
+          <p className={`font-orbitron text-[10px] tracking-[0.6em] text-amber-600 uppercase font-black mt-8 ${isPinError ? 'text-red-500' : 'animate-pulse'}`}>
+            {status}
+          </p>
+        </div>
+
+        {/* Initial Selection View */}
+        {authMode === null && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 w-full max-w-3xl animate-fade-in-up">
+            <AuthCard icon="BIO" label="BIOMETRIC" sub="RETINA_SCAN" onClick={() => selectMode('biometric')} />
+            <AuthCard icon="SIG" label="SIGNATURE" sub="HANDWRITING" onClick={() => selectMode('signature')} />
+            <AuthCard icon="PIN" label="NEURAL_PIN" sub="10_DIGIT_KEY" onClick={() => selectMode('pin')} />
+            
             {hasNativeBiometrics && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/5 border border-amber-500/20 rounded-full animate-fade-in">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                <span className="text-[7px] font-orbitron text-amber-500/60 tracking-widest uppercase">STARK_HARDWARE_LINK_ACTIVE</span>
+              <div className="col-span-full mt-4">
+                <button onClick={handleNativeBiometric} className="w-full py-4 glass border-amber-500/20 text-amber-500 font-orbitron text-[10px] tracking-[0.4em] hover:bg-amber-500/10 transition-all rounded-xl flex items-center justify-center gap-4">
+                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                  HARDWARE_ENCLAVE_DETECTED
+                </button>
               </div>
             )}
-          </div>
-        </div>
-
-        <div className={`flex bg-black/40 border border-amber-500/5 p-1.5 rounded-2xl backdrop-blur-3xl shadow-2xl transition-all duration-1000 delay-300 transform ${isBooted ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
-          <button 
-            onClick={() => switchMode('biometric')}
-            className={`px-10 sm:px-14 py-4 rounded-xl font-orbitron text-[9px] tracking-widest transition-all duration-500 ${authMode === 'biometric' ? 'bg-amber-500 text-black shadow-[0_0_30px_rgba(245,158,11,0.4)]' : 'text-amber-800 hover:text-amber-500'}`}
-          >
-            BIO_SCAN
-          </button>
-          <button 
-            onClick={() => switchMode('signature')}
-            className={`px-10 sm:px-14 py-4 rounded-xl font-orbitron text-[9px] tracking-widest transition-all duration-500 ${authMode === 'signature' ? 'bg-amber-500 text-black shadow-[0_0_30px_rgba(245,158,11,0.4)]' : 'text-amber-800 hover:text-amber-500'}`}
-          >
-            SIG_AUTH
-          </button>
-        </div>
-
-        {authMode === 'biometric' ? (
-          <div className={`relative flex flex-col items-center gap-10 transition-all duration-1000 delay-500 ${isBooted ? 'scale-100 opacity-100' : 'scale-90 opacity-0'}`}>
-            
-            <button
-              onMouseDown={startBiometricScan}
-              onMouseUp={stopBiometricScan}
-              onMouseLeave={stopBiometricScan}
-              onTouchStart={(e) => { e.preventDefault(); startBiometricScan(); }}
-              onTouchEnd={stopBiometricScan}
-              className={`relative w-72 h-72 sm:w-80 sm:h-80 rounded-full flex items-center justify-center transition-all duration-700 border border-white/5 bg-[#0a0602] backdrop-blur-3xl overflow-hidden group ${isAuthInProgress ? 'border-amber-400/40 shadow-[0_0_150px_rgba(245,158,11,0.2)] scale-[0.98]' : 'hover:border-amber-500/20 shadow-2xl hover:scale-105'}`}
-            >
-              <div className="absolute inset-0 transition-opacity duration-500 overflow-hidden rounded-full" style={{ opacity: isAuthInProgress ? 1 : 0 }}>
-                <div className="absolute inset-0 bg-gradient-to-t from-amber-600/30 to-transparent" style={{ transform: `translateY(${100 - progress}%)`, transition: 'transform 0.1s linear' }}></div>
-              </div>
-              
-              <div className={`relative z-10 flex flex-col items-center gap-6 transition-all duration-500 ${isAuthInProgress ? 'scale-110' : 'opacity-30 group-hover:opacity-60'}`}>
-                <div className="relative">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.5" className={`w-28 h-28 text-amber-500 transition-all duration-300 ${isAuthInProgress ? 'drop-shadow-[0_0_20px_rgba(245,158,11,1)]' : ''}`}>
-                    <path d="M12 11c0 3.517-2.103 6.542-5.11 7.794m10.22 0A9.001 9.001 0 0017 11V5.5M7 5.5a9 9 0 0113.844-7.5M10.5 5.5v5.5m0-11V2M3.5 17.5v-1.5M20.5 17.5v-1.5" />
-                  </svg>
-                </div>
-                <span className={`text-[9px] font-orbitron tracking-[0.5em] font-black ${isAuthInProgress ? 'text-amber-200 animate-pulse' : 'text-amber-500'}`}>
-                  {isAuthInProgress ? 'ANALYZING...' : 'HOLD_TO_SCAN'}
-                </span>
-              </div>
-
-              {isAuthInProgress && (
-                <div className="absolute inset-0 pointer-events-none z-20">
-                   <div className="absolute top-0 w-full h-[2px] bg-amber-300 shadow-[0_0_30px_amber] animate-v-scan-fast opacity-80"></div>
-                </div>
-              )}
-            </button>
-
-            {hasNativeBiometrics && !isAuthInProgress && (
-              <button 
-                onClick={handleNativeBiometric}
-                className="group flex items-center gap-5 px-10 py-5 bg-amber-500/10 border border-amber-500/40 rounded-2xl hover:bg-amber-500/20 transition-all animate-fade-in hover:scale-105 active:scale-95 shadow-[0_0_50px_rgba(245,158,11,0.15)]"
-              >
-                <div className="p-3 bg-amber-500/20 rounded-xl">
-                  <svg className="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                </div>
-                <div className="flex flex-col items-start">
-                  <span className="text-xs font-orbitron font-black text-amber-500 tracking-[0.2em]">VERIFY_IDENTITY</span>
-                  <span className="text-[8px] font-mono text-amber-600/60 uppercase mt-1">Triggers Windows Hello / TouchID</span>
-                </div>
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className={`flex flex-col items-center gap-10 w-full transition-all duration-1000 delay-500 ${isBooted ? 'opacity-100' : 'opacity-0'}`}>
-            <div className={`relative w-full aspect-video bg-[#0a0501] border rounded-2xl overflow-hidden transition-all duration-500 ${isAuthInProgress ? 'border-amber-400 shadow-[0_0_60px_rgba(245,158,11,0.1)]' : 'border-amber-500/10 shadow-[inset_0_0_100px_rgba(0,0,0,1)]'}`}>
-              <div className="absolute top-4 left-4 text-[7px] font-mono text-amber-500/20 uppercase tracking-widest z-20">Digital_Surface_Layer_Secure</div>
-              
-              <svg className="absolute inset-0 w-full h-full pointer-events-none z-20 overflow-visible">
-                {isAuthInProgress && vertices.map((v, i) => (
-                   <g key={i} className="animate-fade-in">
-                      <rect x={v.x - 4} y={v.y - 4} width={8} height={8} fill="none" stroke="#fbbf24" strokeWidth="0.5" className="animate-pulse" />
-                      <line x1={v.x} y1={v.y} x2={v.x + 10} y2={v.y - 10} stroke="#fbbf24" strokeWidth="0.2" strokeOpacity="0.4" />
-                      <text x={v.x + 12} y={v.y - 10} fill="#fbbf24" fontSize="5" className="font-mono opacity-40">PT_{i.toString().padStart(2, '0')}</text>
-                   </g>
-                ))}
-              </svg>
-
-              <svg 
-                ref={canvasRef}
-                className="w-full h-full cursor-crosshair relative z-10"
-                onMouseDown={handleSignatureStart}
-                onMouseMove={handleSignatureMove}
-                onMouseUp={handleSignatureEnd}
-                onMouseLeave={handleSignatureEnd}
-                onTouchStart={(e) => { e.preventDefault(); handleSignatureStart(e); }}
-                onTouchMove={(e) => { e.preventDefault(); handleSignatureMove(e); }}
-                onTouchEnd={handleSignatureEnd}
-              >
-                {paths.map((path, i) => (
-                  <polyline 
-                    key={i} 
-                    points={path.map(p => `${p.x},${p.y}`).join(' ')} 
-                    fill="none" 
-                    stroke="#fbbf24" 
-                    strokeWidth="2.5" 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round" 
-                    className={`transition-opacity duration-500 ${isAuthInProgress ? 'opacity-40' : 'opacity-100'} drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]`} 
-                  />
-                ))}
-              </svg>
-              
-              {!isAuthInProgress && paths.length === 0 && (
-                <div className="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none">
-                   <span className="font-orbitron text-[9px] tracking-[1.2em] text-amber-500 uppercase animate-pulse">SIGN_TO_AUTHORIZE</span>
-                </div>
-              )}
-              
-              {isAuthInProgress && (
-                <div className="absolute inset-0 pointer-events-none bg-amber-500/5 z-30">
-                  <div className="w-full h-[2px] bg-amber-400 shadow-[0_0_40px_amber] absolute animate-v-scan-fast opacity-60"></div>
-                  <div className="absolute inset-0 bg-grid opacity-20"></div>
-                </div>
-              )}
-            </div>
-            
-            <div className="flex gap-6 w-full max-w-md">
-              <button onClick={() => { setPaths([]); sounds.playUiTick(); }} className="flex-1 py-4 border border-amber-900/20 rounded-xl font-orbitron text-[9px] tracking-[0.4em] text-amber-900 hover:text-amber-500 hover:border-amber-500/30 transition-all uppercase">Purge_Buffer</button>
-              <button 
-                onClick={verifySignature} 
-                disabled={isAuthInProgress || paths.length === 0} 
-                className={`flex-1 py-4 rounded-xl font-orbitron text-[9px] tracking-[0.4em] transition-all uppercase ${paths.length > 0 ? 'bg-amber-500 text-black shadow-[0_0_50px_rgba(245,158,11,0.3)] hover:scale-105 active:scale-95 animate-breathing-glow' : 'bg-amber-950/10 text-amber-950 cursor-not-allowed'}`}
-              >
-                AUTHORIZE_SIG
-              </button>
-            </div>
           </div>
         )}
 
-        <div className={`text-center opacity-20 transition-all duration-1000 delay-700 ${isBooted ? 'translate-y-0' : 'translate-y-10'}`}>
-           <p className="text-[7px] font-mono tracking-widest text-amber-700 uppercase">Property_Of_Stark_Industries_Level_7_Access_Only</p>
-        </div>
+        {/* Active Input View (Only visible when authMode is not null) */}
+        {authMode !== null && (
+          <div className="w-full flex flex-col items-center animate-scale-in">
+            {/* Status displayed here as well for feedback during active mode */}
+            <p className={`font-orbitron text-[12px] tracking-[0.4em] text-amber-500 uppercase font-black mb-12 ${isPinError ? 'text-red-500' : 'animate-pulse'}`}>
+              {status}
+            </p>
+
+            {authMode === 'biometric' && (
+              <button
+                onMouseDown={startBiometricScan}
+                onMouseUp={() => { if(progress < 100) { setIsAuthInProgress(false); setProgress(0); setStatus('HOLD_FOR_LINK'); if(timerRef.current) clearInterval(timerRef.current); } }}
+                className={`relative w-64 h-64 sm:w-80 sm:h-80 rounded-full flex items-center justify-center transition-all duration-700 border border-white/5 bg-[#0a0602] backdrop-blur-3xl overflow-hidden group shadow-[0_0_80px_rgba(0,0,0,0.8)] ${isAuthInProgress ? 'border-amber-400 shadow-[0_0_120px_rgba(245,158,11,0.25)] scale-[0.98]' : 'hover:border-amber-500/20 hover:scale-105'}`}
+              >
+                <div className="absolute inset-0 transition-opacity duration-500 overflow-hidden" style={{ opacity: isAuthInProgress ? 1 : 0 }}>
+                  <div className="absolute inset-0 bg-gradient-to-t from-amber-600/30 to-transparent" style={{ transform: `translateY(${100 - progress}%)` }}></div>
+                </div>
+                <div className="relative z-10 flex flex-col items-center gap-6">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.4" className={`w-24 h-24 sm:w-32 sm:h-32 text-amber-500 ${isAuthInProgress ? 'animate-pulse' : 'opacity-40'}`}><path d="M12 11c0 3.517-2.103 6.542-5.11 7.794m10.22 0A9.001 9.001 0 0017 11V5.5M7 5.5a9 9 0 0113.844-7.5M10.5 5.5v5.5m0-11V2M3.5 17.5v-1.5M20.5 17.5v-1.5" /></svg>
+                </div>
+                {isAuthInProgress && <div className="absolute top-0 w-full h-[3px] bg-amber-400 animate-v-scan opacity-90 shadow-[0_0_20px_rgba(251,191,36,0.8)]"></div>}
+              </button>
+            )}
+
+            {authMode === 'pin' && (
+              <div className="flex flex-col items-center gap-8 w-full max-w-sm">
+                <div className={`flex gap-3 p-6 glass border-2 rounded-2xl w-full justify-center shadow-inner overflow-hidden ${isPinError ? 'border-red-500 shadow-[0_0_30px_rgba(239,68,68,0.2)]' : 'border-amber-500/10'}`}>
+                  {[...Array(CORRECT_PIN.length)].map((_, i) => (
+                    <div key={i} className={`w-2 h-2 rounded-full border transition-all duration-300 ${isPinError ? 'bg-red-500 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)]' : (pin.length > i ? 'bg-amber-500 border-amber-400 scale-125 shadow-[0_0_10px_rgba(245,158,11,0.8)]' : 'border-amber-900/30 bg-transparent')}`}></div>
+                  ))}
+                </div>
+
+                <div ref={keypadRef} className="relative grid grid-cols-3 gap-4 w-full p-2">
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
+                    <polyline points={pinNodes.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke={isPinError ? "#ef4444" : "#fbbf24"} strokeWidth="2" strokeOpacity="0.4" strokeDasharray="5 3" />
+                    {pinNodes.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="5" fill={isPinError ? "#ef4444" : "#fbbf24"} fillOpacity="0.6" className="animate-pulse" />)}
+                  </svg>
+
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'CLR', '0', 'DEL'].map((val) => {
+                    const isSelected = pin.includes(val);
+                    return (
+                      <button
+                        key={val}
+                        data-val={val}
+                        disabled={isAuthInProgress && val !== 'CLR'}
+                        onMouseDown={(e) => { if(val !== 'CLR' && val !== 'DEL') handlePinInput(val, e); }}
+                        onClick={() => {
+                          if (val === 'CLR') { setPin(''); setPinNodes([]); sounds.playUiTick(); }
+                          else if (val === 'DEL') { setPin(prev => prev.slice(0, -1)); setPinNodes(prev => prev.slice(0, -1)); sounds.playUiTick(); }
+                        }}
+                        className={`relative z-10 aspect-square flex flex-col items-center justify-center rounded-2xl border transition-all duration-300 backdrop-blur-md group ${val === 'CLR' || val === 'DEL' ? 'border-amber-900/20 text-[8px] font-orbitron text-amber-900 hover:text-amber-500' : `border-amber-500/10 bg-white/5 hover:border-amber-500/50 hover:bg-amber-500/10 active:scale-90 ${isSelected ? 'border-amber-500/80 bg-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.3)]' : ''}`}`}
+                      >
+                        <span className={`text-xl sm:text-2xl font-orbitron font-black ${val === 'CLR' || val === 'DEL' ? 'mb-1' : 'text-amber-500'}`}>{val}</span>
+                        {isSelected && <div className="absolute inset-0 rounded-2xl border-2 border-amber-500 animate-pulse pointer-events-none"></div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {authMode === 'signature' && (
+              <div className="flex flex-col items-center gap-10 w-full max-w-2xl">
+                <div className={`relative w-full aspect-video bg-[#0a0501]/80 border-2 rounded-2xl overflow-hidden backdrop-blur-3xl ${isAuthInProgress ? 'border-amber-400' : 'border-amber-500/10'}`}>
+                  <svg ref={canvasRef} className="w-full h-full cursor-crosshair relative z-10" onMouseDown={(e) => { setIsDrawing(true); const pos = getPos(e); setPaths(prev => [...prev, [pos]]); sounds.playUiTick(); }} onMouseMove={(e) => { if(!isDrawing) return; const pos = getPos(e); setPaths(prev => { const lp = prev[prev.length - 1]; return [...prev.slice(0, -1), [...lp, pos]]; }); if(Math.random() > 0.9) sounds.playUiTick(); }} onMouseUp={() => setIsDrawing(false)} onTouchStart={(e) => { e.preventDefault(); setIsDrawing(true); const pos = getPos(e); setPaths(prev => [...prev, [pos]]); sounds.playUiTick(); }} onTouchMove={(e) => { e.preventDefault(); if(!isDrawing) return; const pos = getPos(e); setPaths(prev => { const lp = prev[prev.length - 1]; return [...prev.slice(0, -1), [...lp, pos]]; }); }} onTouchEnd={() => setIsDrawing(false)}>
+                    {paths.map((path, i) => <polyline key={i} points={path.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fbbf24" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />)}
+                  </svg>
+                  {paths.length === 0 && <div className="absolute inset-0 flex items-center justify-center opacity-10 pointer-events-none font-orbitron text-[10px] tracking-[1.5em] text-amber-500 uppercase">SIGN_HERE</div>}
+                </div>
+                <div className="flex gap-6 w-full max-w-md">
+                  <button onClick={() => setPaths([])} className="flex-1 py-4 border border-amber-900/30 rounded-xl font-orbitron text-[10px] tracking-[0.4em] text-amber-900 uppercase">CLEAR</button>
+                  <button onClick={verifySignature} disabled={paths.length === 0 || isAuthInProgress} className={`flex-1 py-4 rounded-xl font-orbitron text-[10px] tracking-[0.4em] font-black ${paths.length > 0 ? 'bg-amber-500 text-black shadow-xl animate-pulse' : 'bg-amber-950/10 text-amber-950'}`}>AUTHORIZE</button>
+                </div>
+              </div>
+            )}
+
+            <button onClick={handleReturn} className="mt-12 text-[10px] font-orbitron text-amber-900 hover:text-amber-500 tracking-widest uppercase transition-colors">
+              <span className="mr-2">←</span> RETURN_TO_SELECTION
+            </button>
+          </div>
+        )}
+
+        <p className="text-[7px] font-orbitron tracking-[0.8em] text-amber-700 opacity-20 mt-12 pb-8 text-center uppercase">Property_Of_Stark_Industries_Global_Security</p>
       </div>
 
       <style>{`
-        @keyframes breathing-glow {
-          0%, 100% { box-shadow: 0 0 20px rgba(245,158,11,0.2); }
-          50% { box-shadow: 0 0 40px rgba(245,158,11,0.5); }
-        }
-        .animate-breathing-glow { animation: breathing-glow 2s ease-in-out infinite; }
-        
-        @keyframes v-scan-fast { 
-          0% { transform: translateY(-100px); opacity: 0; } 
-          10% { opacity: 1; } 
-          90% { opacity: 1; } 
-          100% { transform: translateY(400px); opacity: 0; } 
-        }
-        .animate-v-scan-fast { animation: v-scan-fast 2.0s ease-in-out infinite; }
-        
-        @keyframes fade-in {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in { animation: fade-in 0.8s ease-out forwards; }
+        @keyframes fade-in-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in-up { animation: fade-in-up 0.8s ease-out forwards; }
+        @keyframes scale-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .animate-scale-in { animation: scale-in 0.5s ease-out forwards; }
+        @keyframes v-scan { 0% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateY(400px); opacity: 0; } }
+        .animate-v-scan { animation: v-scan 2.5s ease-in-out infinite; }
       `}</style>
     </div>
   );
 };
+
+const AuthCard: React.FC<{ icon: string, label: string, sub: string, onClick: () => void }> = ({ icon, label, sub, onClick }) => (
+  <button onClick={onClick} className="group relative glass p-8 rounded-2xl flex flex-col items-center gap-4 border border-amber-500/10 hover:border-amber-500/50 hover:bg-amber-500/10 transition-all duration-500 hover:scale-105 shadow-2xl overflow-hidden">
+    <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+    <div className="w-16 h-16 border border-amber-500/20 rounded-xl flex items-center justify-center font-orbitron text-xl text-amber-500 group-hover:text-amber-400 group-hover:border-amber-500/60 transition-all">
+      {icon === 'BIO' && '⊗'}
+      {icon === 'SIG' && '✎'}
+      {icon === 'PIN' && '＃'}
+    </div>
+    <div className="flex flex-col items-center">
+      <span className="text-[10px] font-orbitron font-black text-amber-500 tracking-[0.3em] uppercase">{label}</span>
+      <span className="text-[6px] font-orbitron text-amber-900 tracking-widest uppercase mt-1">{sub}</span>
+    </div>
+  </button>
+);
