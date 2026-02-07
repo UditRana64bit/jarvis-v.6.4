@@ -500,7 +500,7 @@ const App: React.FC = () => {
                   {diagnosticLog.map((log, i) => (
                     <div key={i} className="text-[9px] text-amber-500/40 flex gap-3">
                       <span className="opacity-30">[{new Date().toLocaleTimeString()}]</span>
-                      <span className="text-amber-500/70">> {log}</span>
+                      <span className="text-amber-500/70"> {log}</span>
                     </div>
                   ))}
                   {diagnosticLog.length === 0 && <div className="text-[9px] text-amber-900 italic">No telemetry data recorded.</div>}
