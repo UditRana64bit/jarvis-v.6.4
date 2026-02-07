@@ -375,43 +375,6 @@ const App: React.FC = () => {
           </div>
         </section>
       </main>
-<<<<<<< HEAD
-=======
-
-      <div className={`fixed inset-0 z-50 transition-all duration-700 ${isSettingsOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-        <div className="absolute inset-0 bg-black/90 backdrop-blur-3xl" onClick={() => { setIsSettingsOpen(false); sounds.playUiTick(); }}></div>
-        <div className={`absolute right-0 top-0 bottom-0 w-full max-w-lg glass-dark border-l border-amber-500/20 p-10 transform transition-transform duration-700 ease-out ${isSettingsOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-          <div className="flex justify-between items-center mb-16">
-            <h2 className="font-orbitron text-2xl tracking-[0.4em] text-amber-500 uppercase font-black">SYSTEM_CFG</h2>
-            <button onClick={() => { setIsSettingsOpen(false); sounds.playUiTick(); }} className="text-amber-950 hover:text-amber-500 transition-colors p-2"><svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
-          </div>
-          <div className="space-y-10">
-            <div className="glass p-8 rounded-3xl border-amber-500/20 shadow-2xl">
-              <h3 className="text-[10px] font-orbitron tracking-[0.4em] text-amber-500/60 uppercase mb-6 font-black">NEURAL_DIAGNOSTICS</h3>
-              <button onClick={runDiagnostics} className="w-full py-5 border border-amber-500/40 font-orbitron text-[10px] tracking-[0.5em] uppercase rounded-xl text-amber-400 hover:bg-amber-500/10 hover:border-amber-400 transition-all active:scale-95 shadow-[0_0_20px_rgba(245,158,11,0.1)]">Execute_Core_Handshake</button>
-              <div className="mt-8 bg-black/40 rounded-xl p-6 border border-amber-500/5">
-                <h4 className="text-[8px] font-orbitron text-amber-900 uppercase mb-4 tracking-[0.3em]">Telemetry_Log</h4>
-                <div className="space-y-2 h-40 overflow-y-auto font-mono">
-                  {diagnosticLog.map((log, i) => (
-                    <div key={i} className="text-[9px] text-amber-500/40 flex gap-3">
-                      <span className="opacity-30">[{new Date().toLocaleTimeString()}]</span>
-                      <span className="text-amber-500/70"> {log}</span>
-                    </div>
-                  ))}
-                  {diagnosticLog.length === 0 && <div className="text-[9px] text-amber-900 italic">No telemetry data recorded.</div>}
-                </div>
-              </div>
-            </div>
-            <div className="p-4 border-t border-amber-500/10 pt-10">
-               <p className="text-[8px] font-orbitron text-amber-900/40 leading-relaxed uppercase tracking-[0.2em]">
-                 Unauthorized access to Stark Industries Neural Networks is strictly prohibited. Continuous monitoring active.
-               </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
->>>>>>> e5d9f8d3c9eb8d4ce74f291e16b7b02a1e21fe48
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 3px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(251, 191, 36, 0.1); border-radius: 10px; }
