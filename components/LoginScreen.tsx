@@ -368,7 +368,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
           </div>
         )}
 
-        <p className="text-[7px] font-orbitron tracking-[0.8em] text-amber-700 opacity-20 mt-12 pb-8 text-center uppercase">Property_Of_Stark_Industries_Global_Security</p>
+        <p className="text-[7px] font-orbitron tracking-[0.8em] text-amber-700 opacity-20 mt-12 pb-8 text-center uppercase">Property_Of_Stark_Industries_Global_Security__Owned_By_Udit_Rana</p>
       </div>
 
       <style>{`
