@@ -6,6 +6,8 @@
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
+  private ambientSource: OscillatorNode | null = null;
+  private ambientGain: GainNode | null = null;
 
   private init() {
     if (!this.ctx) {
@@ -20,6 +22,52 @@ class SoundEngine {
     const gain = this.ctx!.createGain();
     gain.gain.setValueAtTime(val, this.ctx!.currentTime);
     return gain;
+  }
+
+  playAmbientHum() {
+    this.init();
+    if (this.ambientSource) return;
+
+    const osc1 = this.ctx!.createOscillator();
+    const osc2 = this.ctx!.createOscillator();
+    const gain = this.ctx!.createGain();
+    const filter = this.ctx!.createBiquadFilter();
+
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(50, this.ctx!.currentTime); // Sub-bass hum
+    
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(51.5, this.ctx!.currentTime); // Slightly detuned for beating
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(150, this.ctx!.currentTime);
+
+    gain.gain.setValueAtTime(0, this.ctx!.currentTime);
+    gain.gain.linearRampToValueAtTime(0.015, this.ctx!.currentTime + 2); // Slow fade in
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx!.destination);
+
+    osc1.start();
+    osc2.start();
+
+    this.ambientSource = osc1; // Reference one for stopping
+    this.ambientGain = gain;
+  }
+
+  stopAmbientHum() {
+    if (this.ambientGain) {
+      const now = this.ctx!.currentTime;
+      this.ambientGain.gain.cancelScheduledValues(now);
+      this.ambientGain.gain.linearRampToValueAtTime(0, now + 1);
+      setTimeout(() => {
+        this.ambientSource?.stop();
+        this.ambientSource = null;
+        this.ambientGain = null;
+      }, 1100);
+    }
   }
 
   playUiTick() {
@@ -61,7 +109,7 @@ class SoundEngine {
   playAuthSuccess() {
     this.init();
     const now = this.ctx!.currentTime;
-    const frequencies = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+    const frequencies = [523.25, 659.25, 783.99, 1046.50];
     
     frequencies.forEach((f, i) => {
       const osc = this.ctx!.createOscillator();

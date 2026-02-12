@@ -4,6 +4,8 @@ export enum MessageRole {
   JARVIS = 'model'
 }
 
+export type NeuralCoreType = 'gemini-3-pro-preview' | 'gemini-3-flash-preview' | 'gemini-flash-lite-latest';
+
 export interface Message {
   id: string;
   role: MessageRole;
@@ -47,4 +49,5 @@ export interface SystemStats {
   threatLevel: 'ALPHA' | 'BETA' | 'GAMMA' | 'OMEGA' | 'NULL';
   activeNodes: number;
   packetRate: number;
+  inferenceSpeed: number; // tokens/sec
 }

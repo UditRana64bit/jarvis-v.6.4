@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Modality, Type } from "@google/genai";
-import { Message } from "../types";
+import { Message, NeuralCoreType } from "../types";
 
 export const getGeminiClient = () => {
   const apiKey = process.env.API_KEY || '';
@@ -13,16 +13,16 @@ export const getGeminiClient = () => {
 /**
  * Extracts long-term facts from a conversation to be stored in JARVIS's memory vault.
  */
-export const extractFacts = async (conversation: string) => {
+export const extractFacts = async (conversation: string, core: NeuralCoreType = 'gemini-3-flash-preview') => {
   try {
     const ai = getGeminiClient();
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: core,
       contents: `Extract any personal facts or preferences mentioned by the user in this text. 
       Text: "${conversation}"
       Return a simple list of facts. If no new facts, return "NONE".`,
       config: {
-        maxOutputTokens: 100,
+        maxOutputTokens: 150,
         systemInstruction: "You are the JARVIS neural processing unit. Your job is to extract user preferences and facts for long-term storage."
       }
     });
@@ -38,14 +38,20 @@ export const extractFacts = async (conversation: string) => {
 
 /**
  * Generates grounded content using Google Maps and Google Search.
+ * Includes Thinking Config for Pro models.
  */
-export const generateGroundedResponse = async (prompt: string, context: string = "", location?: { latitude: number, longitude: number }) => {
+export const generateGroundedResponse = async (prompt: string, context: string = "", core: NeuralCoreType = 'gemini-3-flash-preview', location?: { latitude: number, longitude: number }) => {
   const ai = getGeminiClient();
   
   const config: any = {
     tools: [{ googleSearch: {} }, { googleMaps: {} }],
     systemInstruction: "You are JARVIS. Address me as Sir. You have access to a neural memory vault of all our previous conversations. If location data is available, prioritize local context for weather, traffic, and places. Maintain a professional, sophisticated, and authoritative tone."
   };
+
+  // Enable Thinking for Pro Core
+  if (core === 'gemini-3-pro-preview') {
+    config.thinkingConfig = { thinkingBudget: 4000 };
+  }
 
   if (location) {
     config.toolConfig = {
@@ -59,31 +65,42 @@ export const generateGroundedResponse = async (prompt: string, context: string =
   }
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-latest",
+    model: core,
     contents: `Recent Context: ${context}\n\nUser Message: ${prompt}`,
     config: config
   });
 
   const groundingLinks: Array<{ title: string, uri: string }> = [];
-
-  // Extract URLs from groundingChunks (Search and Maps)
   const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
   chunks.forEach((chunk: any) => {
-    if (chunk.web) {
-      groundingLinks.push({ title: chunk.web.title || "Source", uri: chunk.web.uri });
-    }
-    if (chunk.maps) {
-      groundingLinks.push({ title: chunk.maps.title || "Location Intel", uri: chunk.maps.uri });
-      if (chunk.maps.placeAnswerSources?.reviewSnippets) {
-        // Optional: you could extract more from snippets if needed
-      }
-    }
+    if (chunk.web) groundingLinks.push({ title: chunk.web.title || "Source", uri: chunk.web.uri });
+    if (chunk.maps) groundingLinks.push({ title: chunk.maps.title || "Location Intel", uri: chunk.maps.uri });
   });
 
   return {
     text: response.text,
     links: groundingLinks
   };
+};
+
+/**
+ * Visual Analysis Protocol
+ */
+export const analyzeEnvironment = async (base64Image: string, prompt: string, core: NeuralCoreType = 'gemini-3-flash-preview') => {
+  const ai = getGeminiClient();
+  const response = await ai.models.generateContent({
+    model: core,
+    contents: {
+      parts: [
+        { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
+        { text: `Tactical Analysis requested: ${prompt}. Analyze the visual feed and provide strategic intelligence.` }
+      ]
+    },
+    config: {
+      systemInstruction: "You are JARVIS. Analyze optical data from the suit's external cameras. Be concise and professional."
+    }
+  });
+  return response.text;
 };
 
 /**
@@ -109,77 +126,43 @@ export const generateVisualization = async (prompt: string): Promise<string | nu
   return null;
 };
 
-// Manual base64 decoding
 export function decodeBase64(base64: string) {
   const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
   return bytes;
 }
 
-// Manual base64 encoding
 export function encodeBase64(bytes: Uint8Array) {
   let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
-export async function decodeAudioData(
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
-): Promise<AudioBuffer> {
+export async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> {
   const dataInt16 = new Int16Array(data.buffer);
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
   for (let channel = 0; channel < numChannels; channel++) {
     const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
+    for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
   }
   return buffer;
 }
 
 export async function generateJarvisSpeech(text: string): Promise<string> {
-  try {
-    const ai = getGeminiClient();
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: `Say in a professional, authoritative, and calm voice: ${text}` }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Fenrir' },
-          },
-        },
+  const ai = getGeminiClient();
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash-preview-tts",
+    contents: [{ parts: [{ text: `Say in a professional, authoritative, and calm voice: ${text}` }] }],
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Fenrir' } },
       },
-    });
-
-    const candidate = response.candidates?.[0];
-    if (!candidate || candidate.finishReason !== 'STOP') {
-      throw new Error(`System Protocol Refused. Reason: ${candidate?.finishReason || 'REFUSED'}`);
-    }
-
-    const audioPart = candidate.content.parts.find(p => p.inlineData);
-    const base64Audio = audioPart?.inlineData?.data;
-    
-    if (!base64Audio) {
-      throw new Error("Neural link unstable: Audio component missing from response.");
-    }
-    
-    return base64Audio;
-  } catch (error) {
-    console.error("Jarvis Neural Voice Engine failure:", error);
-    throw error;
-  }
+    },
+  });
+  const base64Audio = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+  if (!base64Audio) throw new Error("Audio synthesis failed");
+  return base64Audio;
 }
