@@ -1,5 +1,6 @@
 
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
+import * as THREE from 'three';
 
 interface JarvisCoreProps {
   isProcessing: boolean;
@@ -7,113 +8,229 @@ interface JarvisCoreProps {
 }
 
 export const JarvisCore: React.FC<JarvisCoreProps> = ({ isProcessing, isSpeaking }) => {
-  const [synapseOffset, setSynapseOffset] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const frameIdRef = useRef<number | null>(null);
+  const coreGroupRef = useRef<THREE.Group | null>(null);
+
+  const AMBER = 0xffaa00;
+  const BRIGHT_AMBER = 0xffcc33;
+  const DEEP_ORANGE = 0xcc4400;
 
   useEffect(() => {
-    let frame: number;
-    const animate = () => {
-      setSynapseOffset(prev => (prev + 0.5) % 100);
-      frame = requestAnimationFrame(animate);
+    if (!containerRef.current) return;
+
+    const width = containerRef.current.clientWidth;
+    const height = containerRef.current.clientHeight;
+
+    // 1. SCENE SETUP
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
+    camera.position.set(0, 0, 7);
+    sceneRef.current = scene;
+    cameraRef.current = camera;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    containerRef.current.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
+
+    const rootGroup = new THREE.Group();
+    scene.add(rootGroup);
+    coreGroupRef.current = rootGroup;
+
+    // 2. CENTRAL SINGULARITY (The bright white-amber heart)
+    const singularityGeo = new THREE.SphereGeometry(0.3, 32, 32);
+    const singularityMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    const singularity = new THREE.Mesh(singularityGeo, singularityMat);
+    rootGroup.add(singularity);
+
+    const singularityGlowGeo = new THREE.SphereGeometry(0.8, 32, 32);
+    const singularityGlowMat = new THREE.ShaderMaterial({
+      uniforms: { color: { value: new THREE.Color(AMBER) } },
+      vertexShader: `
+        varying vec3 vNormal;
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vNormal;
+        uniform vec3 color;
+        void main() {
+          float intensity = pow(0.7 - dot(vNormal, vec3(0, 0, 1.0)), 6.0);
+          gl_FragColor = vec4(color, intensity * 0.8);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      side: THREE.BackSide
+    });
+    const singularityGlow = new THREE.Mesh(singularityGlowGeo, singularityGlowMat);
+    rootGroup.add(singularityGlow);
+
+    // 3. THE "LOOM" - High density rotating arcs
+    const createDataLayer = (radius: number, arcCount: number, thickness: number, speedMult: number, opacity: number) => {
+      const layerGroup = new THREE.Group();
+      
+      for (let i = 0; i < arcCount; i++) {
+        const arcLen = Math.random() * Math.PI * 0.8 + 0.2;
+        const ringGeo = new THREE.TorusGeometry(radius, thickness, 4, 64, arcLen);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: Math.random() > 0.3 ? AMBER : BRIGHT_AMBER,
+          transparent: true,
+          opacity: opacity + Math.random() * 0.2,
+          blending: THREE.AdditiveBlending,
+          side: THREE.DoubleSide
+        });
+        
+        const mesh = new THREE.Mesh(ringGeo, ringMat);
+        mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+        mesh.userData = { speed: (Math.random() - 0.5) * 0.02 * speedMult };
+        layerGroup.add(mesh);
+      }
+      return layerGroup;
     };
-    if (isProcessing || isSpeaking) {
-      frame = requestAnimationFrame(animate);
+
+    // Inner Loom (Tight & Fast)
+    const innerLoom = createDataLayer(1.2, 12, 0.015, 2.5, 0.4);
+    rootGroup.add(innerLoom);
+
+    // Outer Loom (Wider & Strategic)
+    const outerLoom = createDataLayer(2.2, 8, 0.01, 1.2, 0.2);
+    rootGroup.add(outerLoom);
+
+    // 4. NEURAL NODES (Cloud of points)
+    const pointsGeo = new THREE.BufferGeometry();
+    const positions = [];
+    const colors = [];
+    const colorObj = new THREE.Color(AMBER);
+    
+    for (let i = 0; i < 400; i++) {
+      const r = 2.0 + Math.random() * 0.8;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      positions.push(
+        r * Math.sin(phi) * Math.cos(theta),
+        r * Math.sin(phi) * Math.sin(theta),
+        r * Math.cos(phi)
+      );
+      colors.push(colorObj.r, colorObj.g, colorObj.b);
     }
-    return () => cancelAnimationFrame(frame);
+    
+    pointsGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    pointsGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    
+    const pointsMat = new THREE.PointsMaterial({
+      size: 0.03,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.6,
+      blending: THREE.AdditiveBlending
+    });
+    const neuralNodes = new THREE.Points(pointsGeo, pointsMat);
+    rootGroup.add(neuralNodes);
+
+    // 5. EXTERNAL DATA SHELL (Broken circuitry segments)
+    const shellGeo = new THREE.SphereGeometry(2.8, 24, 24);
+    const shellMat = new THREE.MeshBasicMaterial({
+      color: DEEP_ORANGE,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.05,
+      blending: THREE.AdditiveBlending
+    });
+    const shell = new THREE.Mesh(shellGeo, shellMat);
+    rootGroup.add(shell);
+
+    // 6. ANIMATION LOOP
+    const animate = (time: number) => {
+      const delta = time * 0.001;
+      const reactivity = isProcessing ? 3.0 : 1.0;
+      const pulseFactor = isSpeaking ? 1.5 : 1.0;
+
+      if (rootGroup) {
+        // Base Rotation
+        rootGroup.rotation.y += 0.002 * reactivity;
+        rootGroup.rotation.z += 0.001;
+
+        // Animate all meshes in loops
+        rootGroup.traverse((obj) => {
+          if (obj instanceof THREE.Mesh && obj.userData.speed) {
+            obj.rotation.x += obj.userData.speed * reactivity;
+            obj.rotation.y += obj.userData.speed * 0.5 * reactivity;
+          }
+        });
+
+        // Singularity Pulse
+        const s = 1.0 + Math.sin(delta * 10.0 * pulseFactor) * 0.1 * pulseFactor;
+        singularity.scale.setScalar(s);
+        singularityMat.opacity = 0.8 + Math.sin(delta * 15.0) * 0.2;
+        
+        // Glow Intensity
+        singularityGlow.scale.setScalar(1.0 + Math.sin(delta * 2.0) * 0.05);
+        
+        // Nodes Rotation
+        neuralNodes.rotation.y -= 0.001 * reactivity;
+        
+        // Shell Oscillation
+        shell.rotation.y += 0.0005 * reactivity;
+        shell.scale.setScalar(1.0 + Math.sin(delta * 0.5) * 0.02);
+      }
+
+      if (cameraRef.current) {
+        // Subtle drift
+        cameraRef.current.position.x = Math.sin(delta * 0.2) * 0.2;
+        cameraRef.current.position.y = Math.cos(delta * 0.15) * 0.2;
+        cameraRef.current.lookAt(0, 0, 0);
+      }
+
+      renderer.render(scene, camera);
+      frameIdRef.current = requestAnimationFrame(animate);
+    };
+
+    frameIdRef.current = requestAnimationFrame(animate);
+
+    // RESIZE OBSERVER
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        if (!cameraRef.current || !rendererRef.current) continue;
+        const { width, height } = entry.contentRect;
+        cameraRef.current.aspect = width / height;
+        cameraRef.current.updateProjectionMatrix();
+        rendererRef.current.setSize(width, height);
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      if (frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
+      if (rendererRef.current) {
+        rendererRef.current.dispose();
+        rendererRef.current.domElement.remove();
+      }
+    };
   }, [isProcessing, isSpeaking]);
 
-  const webElements = useMemo(() => {
-    const lines = Array.from({ length: 80 }).map((_, i) => ({
-      x1: Math.random() * 100,
-      y1: Math.random() * 100,
-      x2: Math.random() * 100,
-      y2: Math.random() * 100,
-      opacity: 0.02 + Math.random() * 0.3,
-    }));
-    return { lines };
-  }, []);
-
   return (
-    <div className="relative w-[30rem] h-[30rem] sm:w-[45rem] sm:h-[45rem] flex items-center justify-center transition-transform duration-1000" style={{ filter: isSpeaking ? 'url(#refraction)' : 'none' }}>
-      
-      {/* Background Atmosphere */}
-      <div className={`absolute inset-0 rounded-full bg-[rgba(var(--accent),0.03)] blur-[150px] transition-all duration-1000 ${isSpeaking ? 'opacity-100 scale-150' : isProcessing ? 'opacity-60 scale-110' : 'opacity-20'}`}></div>
-
-      {/* Primary Synaptic Mesh */}
-      <svg className={`absolute inset-0 w-full h-full opacity-30 ${isProcessing ? 'animate-spin-slower' : 'animate-spin-super-slow'}`} viewBox="0 0 100 100" style={{ filter: 'url(#hologram-glow)' }}>
-        <defs>
-          <linearGradient id="lineGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="rgb(var(--accent))" stopOpacity="0.8" />
-            <stop offset="100%" stopColor="rgb(var(--accent))" stopOpacity="0.1" />
-          </linearGradient>
-        </defs>
-        {webElements.lines.map((l, i) => (
-          <line 
-            key={i} 
-            x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} 
-            stroke="url(#lineGrad)" 
-            strokeWidth="0.04" 
-            strokeOpacity={l.opacity * (isSpeaking ? 2.5 : isProcessing ? 1.5 : 1)} 
-            className="transition-opacity duration-500"
-          />
-        ))}
-      </svg>
-
-      {/* Tactical Orbital HUD */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className={`absolute w-[80%] h-[80%] border border-[rgba(var(--accent),0.1)] rounded-full ${isProcessing ? 'animate-spin-slow' : 'opacity-10'}`}></div>
-        <div className={`absolute w-[70%] h-[70%] border border-dashed border-[rgba(var(--accent),0.05)] rounded-full ${isProcessing ? 'animate-reverse-spin-slow' : 'opacity-5'}`}></div>
-        
-        {/* Cardinal Markers */}
-        {[0, 90, 180, 270].map((deg) => (
-          <div 
-            key={deg} 
-            className="absolute w-1 h-6 accent-bg opacity-40" 
-            style={{ transform: `rotate(${deg}deg) translateY(-210px)` }}
-          ></div>
-        ))}
-      </div>
-      
-      {/* Core Projection Unit */}
-      <div className="relative z-10 w-64 h-64 sm:w-80 sm:h-80 flex items-center justify-center">
-        <div className={`absolute inset-0 bg-gradient-to-tr from-[rgba(var(--accent),0.4)] via-transparent to-[rgba(var(--accent),0.2)] rounded-full blur-[80px] animate-pulse`}></div>
-        
-        {/* Central Iris */}
-        <div className={`relative w-36 h-36 sm:w-48 sm:h-48 rounded-full bg-[#050201] border-2 border-[rgba(var(--accent),0.5)] flex items-center justify-center shadow-[0_0_150px_rgba(var(--accent),0.4)] transition-all duration-700 ${isSpeaking ? 'scale-110' : 'scale-100'}`}>
-          <div className={`w-16 h-16 sm:w-24 sm:h-24 rounded-full accent-bg shadow-[0_0_80px_rgba(var(--accent),1)] transition-all duration-300 ${isSpeaking ? 'scale-125 brightness-150' : ''}`}></div>
-          
-          {/* Inner Mech-Rings */}
-          <div className="absolute inset-4 border border-[rgba(var(--accent),0.2)] rounded-full animate-spin" style={{ animationDuration: '4s' }}></div>
-          <div className="absolute inset-8 border border-dashed border-[rgba(var(--accent),0.3)] rounded-full animate-reverse-spin" style={{ animationDuration: '12s' }}></div>
-
-          {/* Voice Modulation Spectrum */}
-          {[...Array(48)].map((_, i) => (
-            <div 
-              key={i}
-              className={`absolute w-[1.5px] bg-gradient-to-t from-[rgb(var(--accent))] to-transparent transition-all duration-150 origin-bottom`}
-              style={{ 
-                height: isSpeaking ? `${30 + Math.random() * 60}px` : isProcessing ? '20px' : '10px',
-                bottom: '50%',
-                transform: `rotate(${i * 7.5}deg) translateY(-45px)`,
-                opacity: isSpeaking ? 1 : 0.1
-              }}
-            ></div>
-          ))}
-        </div>
-      </div>
-
-      <style>{`
-        @keyframes spin-super-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        .animate-spin-super-slow { animation: spin-super-slow 180s linear infinite; }
-        
-        @keyframes spin-slower { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        .animate-spin-slower { animation: spin-slower 60s linear infinite; }
-
-        @keyframes reverse-spin-slow { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
-        .animate-reverse-spin-slow { animation: reverse-spin-slow 30s linear infinite; }
-        
-        @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        .animate-spin-slow { animation: spin-slow 15s linear infinite; }
-      `}</style>
-    </div>
+    <div 
+      ref={containerRef} 
+      className="w-full h-full relative z-0 flex items-center justify-center"
+      style={{ 
+        filter: isSpeaking ? 'url(#refraction) brightness(1.2) contrast(1.1)' : 'brightness(1)',
+        transition: 'filter 0.3s ease'
+      }}
+    />
   );
 };

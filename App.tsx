@@ -13,7 +13,6 @@ import {
   decodeAudioData, 
   generateJarvisSpeech, 
   generateGroundedResponse,
-  generateVisualization,
   extractFacts,
   analyzeEnvironment
 } from './services/geminiService';
@@ -290,10 +289,6 @@ const App: React.FC = () => {
     <div className="relative h-screen flex flex-col bg-[#050201] text-amber-50">
       <OpticalUplink isActive={isOpticalActive} onCapture={handleOpticalCapture} />
       
-      <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-0">
-         <JarvisCore isProcessing={isLiveActive || isProcessing} isSpeaking={isSpeaking} />
-      </div>
-
       <header className="relative z-30 glass-dark border-b border-[rgba(var(--accent),0.1)] px-8 py-5 flex items-center justify-between">
         <div className="flex items-center gap-10">
           <div className="flex items-center gap-4">
@@ -323,24 +318,56 @@ const App: React.FC = () => {
       </header>
 
       <main className="flex-1 flex overflow-hidden relative z-10">
-        <aside className="hidden xl:flex flex-col w-80 border-r border-[rgba(var(--accent),0.1)] glass-dark p-6 space-y-6">
-           <span className="text-[8px] font-orbitron accent-text tracking-[0.4em] mb-4 uppercase opacity-50">DIAGNOSTIC_UPLINK</span>
-           <div className="flex-1 space-y-2 overflow-hidden">
-              {diagnosticLogs.map((log, i) => (
-                <div key={i} className="text-[10px] font-mono accent-text tracking-tighter opacity-40 hover:opacity-100 transition-opacity whitespace-nowrap overflow-hidden">
-                  <span className="text-amber-900/60 mr-2">[{new Date().toLocaleTimeString('en-GB', {hour12: false})}]</span>
-                  {log}
-                </div>
-              ))}
+        {/* REFINED DIAGNOSTIC SIDEBAR (LEFT) */}
+        <aside className="hidden xl:flex flex-col w-96 border-r border-[rgba(var(--accent),0.1)] glass-dark">
+           {/* DEDICATED TOP PANEL: NEURAL COMMAND CENTER (MOVED TO LEFT) */}
+           <div className="p-8 border-b border-[rgba(var(--accent),0.1)] bg-black/40 space-y-6">
+              <div className="flex items-center justify-between mb-2">
+                 <div className="flex flex-col">
+                    <span className="text-[9px] font-orbitron accent-text tracking-[0.4em] uppercase font-bold">NEURAL_CORE</span>
+                    <span className="text-[7px] font-mono opacity-30">UPLINK_0x88_STABLE</span>
+                 </div>
+                 <div className="text-right flex flex-col items-end">
+                    <span className="text-[9px] font-orbitron accent-text tracking-[0.4em] uppercase font-bold">{isProcessing ? 'SCANNING' : 'STANDBY'}</span>
+                    <span className="text-[7px] font-mono opacity-30">LOAD: {isProcessing ? '84%' : '12%'}</span>
+                 </div>
+              </div>
+
+              <div className="relative w-full aspect-square glass rounded-3xl border border-[rgba(var(--accent),0.2)] overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] group">
+                <JarvisCore isProcessing={isLiveActive || isProcessing} isSpeaking={isSpeaking} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                 <div className="p-2 bg-white/5 rounded-lg border border-white/5 flex flex-col items-center">
+                    <span className="text-[6px] font-orbitron opacity-40 uppercase">SYNC_PROB</span>
+                    <span className="text-[10px] font-mono accent-text">98.4%</span>
+                 </div>
+                 <div className="p-2 bg-white/5 rounded-lg border border-white/5 flex flex-col items-center">
+                    <span className="text-[6px] font-orbitron opacity-40 uppercase">VAULT_KEY</span>
+                    <span className="text-[10px] font-mono accent-text">RSA_4096</span>
+                 </div>
+              </div>
            </div>
-           
-           <div className="pt-6 border-t border-[rgba(var(--accent),0.1)]">
-              <span className="text-[8px] font-orbitron accent-text tracking-[0.4em] mb-4 uppercase opacity-50">KEYBOARD_NODES</span>
-              <div className="space-y-2">
-                 <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Ctrl+L</span><span>LIVE_TOGGLE</span></div>
-                 <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Ctrl+I</span><span>FOCUS_INPUT</span></div>
-                 <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Ctrl+D</span><span>DEFENCE_TOGGLE</span></div>
-                 <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Esc</span><span>KILL_ALL</span></div>
+
+           <div className="flex-1 flex flex-col p-6 space-y-6 overflow-hidden">
+              <span className="text-[8px] font-orbitron accent-text tracking-[0.4em] mb-2 uppercase opacity-50">DIAGNOSTIC_UPLINK</span>
+              <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar pr-2">
+                 {diagnosticLogs.map((log, i) => (
+                   <div key={i} className="text-[10px] font-mono accent-text tracking-tighter opacity-40 hover:opacity-100 transition-opacity whitespace-nowrap overflow-hidden">
+                     <span className="text-amber-900/60 mr-2">[{new Date().toLocaleTimeString('en-GB', {hour12: false})}]</span>
+                     {log}
+                   </div>
+                 ))}
+              </div>
+              
+              <div className="pt-6 border-t border-[rgba(var(--accent),0.1)]">
+                 <span className="text-[8px] font-orbitron accent-text tracking-[0.4em] mb-4 uppercase opacity-50">KEYBOARD_NODES</span>
+                 <div className="space-y-2">
+                    <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Ctrl+L</span><span>LIVE_TOGGLE</span></div>
+                    <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Ctrl+I</span><span>FOCUS_INPUT</span></div>
+                    <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Ctrl+D</span><span>DEFENCE_TOGGLE</span></div>
+                    <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Esc</span><span>KILL_ALL</span></div>
+                 </div>
               </div>
            </div>
         </aside>
@@ -391,7 +418,8 @@ const App: React.FC = () => {
           </div>
         </section>
 
-        <aside className="hidden 2xl:flex flex-col w-96 border-l border-[rgba(var(--accent),0.1)] glass-dark p-8 space-y-8 overflow-y-auto custom-scrollbar">
+        {/* OPERATIONS SIDEBAR (RIGHT) */}
+        <aside className="hidden 2xl:flex flex-col w-96 border-l border-[rgba(var(--accent),0.1)] glass-dark overflow-y-auto custom-scrollbar p-8 space-y-10">
            <DashboardWidgets 
              tasks={tasks} 
              memories={memories} 
@@ -400,14 +428,19 @@ const App: React.FC = () => {
              onToggleDefence={toggleDefenceProtocol}
            />
            
-           <span className="text-[10px] font-orbitron accent-text tracking-[0.4em] uppercase font-bold">NEURAL_SYNAPSE_MAP</span>
-           <div className="relative flex-1 min-h-[300px] bg-[rgba(var(--accent),0.02)] border border-[rgba(var(--accent),0.1)] rounded-2xl overflow-hidden p-6 space-y-4">
-              {memories.map((m, i) => (
-                <div key={m.id} className="p-4 bg-[rgba(var(--accent),0.03)] border border-[rgba(var(--accent),0.1)] rounded-xl animate-scan-entry hover:bg-[rgba(var(--accent),0.1)] transition-all">
-                  <div className="flex items-center gap-2 opacity-30 text-[7px] font-mono mb-1"><span>NODE_0x{i.toString(16).toUpperCase()}</span></div>
-                  <p className="text-[10px] font-mono uppercase opacity-70">{m.fact}</p>
-                </div>
-              ))}
+           <div className="space-y-6">
+              <span className="text-[10px] font-orbitron accent-text tracking-[0.4em] uppercase font-bold">NEURAL_SYNAPSE_MAP</span>
+              <div className="relative space-y-4">
+                 {memories.slice(0, 15).map((m, i) => (
+                   <div key={m.id} className="p-4 bg-[rgba(var(--accent),0.03)] border border-[rgba(var(--accent),0.1)] rounded-xl animate-scan-entry hover:bg-[rgba(var(--accent),0.1)] transition-all">
+                     <div className="flex items-center gap-2 opacity-30 text-[7px] font-mono mb-1">
+                        <div className="w-1 h-1 accent-bg rounded-full"></div>
+                        <span>NODE_0x{i.toString(16).toUpperCase()}</span>
+                     </div>
+                     <p className="text-[10px] font-mono uppercase opacity-70 leading-relaxed">{m.fact}</p>
+                   </div>
+                 ))}
+              </div>
            </div>
         </aside>
       </main>
