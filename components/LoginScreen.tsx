@@ -295,8 +295,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
             </p>
 
             {authMode === 'biometric' && (
-              <button
-                onMouseDown={startBiometricScan}
+              <button                
+                onMouseDown={(e) => handlePinInput(num, e)}
+                onTouchStart={(e) => {
+                  e.preventDefault(); // Prevents double-firing on mobile
+                  handlePinInput(num, e);
+                }}
                 onMouseUp={() => { if(progress < 100) { setIsAuthInProgress(false); setProgress(0); setStatus('HOLD_FOR_LINK'); if(timerRef.current) clearInterval(timerRef.current); } }}
                 className={`relative w-64 h-64 sm:w-80 sm:h-80 rounded-full flex items-center justify-center transition-all duration-700 border border-white/5 bg-[#0a0602] backdrop-blur-3xl overflow-hidden group shadow-[0_0_80px_rgba(0,0,0,0.8)] ${isAuthInProgress ? 'border-amber-400 shadow-[0_0_120px_rgba(245,158,11,0.25)] scale-[0.98]' : 'hover:border-amber-500/20 hover:scale-105'}`}
               >
@@ -368,7 +372,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onUnlock }) => {
           </div>
         )}
 
-        <p className="text-[7px] font-orbitron tracking-[0.8em] text-amber-700 opacity-20 mt-12 pb-8 text-center uppercase">Property_Of_Stark_Industries_Global_Security</p>
+        <p className="text-[7px] font-orbitron tracking-[0.8em] text-amber-700 opacity-20 mt-12 pb-8 text-center uppercase">Property_Of_Stark_Industries // UDIT_RANA</p>
       </div>
 
       <style>{`

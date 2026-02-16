@@ -277,7 +277,7 @@ const App: React.FC = () => {
     setIsUnlocked(true); sounds.playAmbientHum();
     setIsProcessing(true);
     try {
-      const greeting = `Handshake complete. Terminal v2.6 online. Shall we begin, Sir?`;
+      const greeting = `Welcome Back Boss, Terminal v2.6 online. Shall we begin, Sir?`;
       setMessages([{ id: 'init', role: MessageRole.JARVIS, content: greeting, timestamp: new Date() }]);
       await speakResponse(greeting);
     } finally { setIsProcessing(false); }
