@@ -209,7 +209,7 @@ const App: React.FC = () => {
            <div className="mt-4 border-t border-white/5 pt-3">
              <span className="text-[5px] opacity-30 tracking-widest block mb-1.5 font-bold uppercase">Uplink Activity</span>
              <div className="space-y-1 max-h-20 overflow-y-auto">
-               {diagnosticLogs.map((log, i) => <div key={i} className="text-[6px] font-mono opacity-40 truncate">>> {log}</div>)}
+               {diagnosticLogs.map((log, i) => <div key={i} className="text-[6px] font-mono opacity-40 truncate"> {log}</div>)}
              </div>
            </div>
         </aside>
