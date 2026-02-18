@@ -50,4 +50,7 @@ export interface SystemStats {
   activeNodes: number;
   packetRate: number;
   inferenceSpeed: number; // tokens/sec
+  windSpeed: number;
+  humidity: number;
+  airPressure: number;
 }

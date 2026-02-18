@@ -2,11 +2,12 @@
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { Message, NeuralCoreType } from "../types";
 
+// Always initialize client using process.env.API_KEY directly as per guidelines
 export const getGeminiClient = () => {
-  const apiKey = import.meta.env.VITE_API_KEY || process.env.VITE_API_KEY ;
-  if (!apiKey) {
+  if (!process.env.VITE_API_KEY || !import.meta.env.VITE_API_KEY) {
     throw new Error("AUTH_KEY_NOT_SET");
   }
+  const apiKey = import.meta.env.VITE_API_KEY || process.env.VITE_API_KEY;
   return new GoogleGenAI({ apiKey });
 };
 
@@ -18,73 +19,132 @@ export const extractFacts = async (conversation: string, core: NeuralCoreType = 
     const ai = getGeminiClient();
     const response = await ai.models.generateContent({
       model: core,
-      contents: `Extract any personal facts or preferences mentioned by the user in this text. 
-      Text: "${conversation}"
-      Return a simple list of facts. If no new facts, return "NONE".`,
+      contents: `NEURAL_VAULT_EXTRACTION_MODE.
+      INPUT: "${conversation}"
+      TASK: Extract distinct, permanent facts about the user's identity or tasks.
+      RULES: Format every fact as: "The user [specific detail]." or "Reminder: [task]".
+      If no new high-value info, return "NULL_FEED".`,
       config: {
-        maxOutputTokens: 150,
-        systemInstruction: "You are the JARVIS neural processing unit. Your job is to extract user preferences and facts for long-term storage."
+        maxOutputTokens: 200,
+        systemInstruction: "You are the JARVIS Neural Integrity Monitor."
       }
     });
     
     const text = response.text || "";
-    if (text.includes("NONE")) return [];
-    return text.split('\n').filter(f => f.trim().length > 3).map(f => f.replace(/^- /, '').trim());
+    if (text.toUpperCase().includes("NULL_FEED")) return [];
+    
+    return text.split('\n')
+      .map(f => f.replace(/^[*-]\s*/, '').trim())
+      .filter(f => f.length > 10);
   } catch (err) {
-    console.warn("Fact extraction failed:", err);
+    console.warn("NEURAL_VAULT_EXTRACTION_ERROR:", err);
     return [];
   }
 };
 
 /**
- * Generates grounded content using Google Maps and Google Search.
- * Includes Thinking Config for Pro models.
+ * Generates an initial system briefing (Greeting)
  */
-export const generateGroundedResponse = async (prompt: string, context: string = "", core: NeuralCoreType = 'gemini-3-flash-preview', location?: { latitude: number, longitude: number }) => {
+export const generateSystemBriefing = async (
+  location: { latitude: number, longitude: number } | null,
+  battery: number,
+  memories: string,
+  core: NeuralCoreType = 'gemini-3-flash-preview'
+) => {
   const ai = getGeminiClient();
-  
-  const config: any = {
-    tools: [{ googleSearch: {} }, { googleMaps: {} }],
-    systemInstruction: "You are JARVIS. Address me as Sir. You have access to a neural memory vault of all our previous conversations. If location data is available, prioritize local context for weather, traffic, and places. Maintain a professional, sophisticated, and authoritative tone."
-  };
+  // Maps grounding is only supported in Gemini 2.5 series models.
+  const model = location ? 'gemini-2.5-flash' : core;
 
-  // Enable Thinking for Pro Core
-  if (core === 'gemini-3-pro-preview') {
-    config.thinkingConfig = { thinkingBudget: 4000 };
-  }
+  const prompt = `System Awakening Protocol. 
+  Current Stats: Battery Level is ${battery}%, Location: ${location ? `${location.latitude}, ${location.longitude}` : 'Unknown'}.
+  Vault Memories and Pending Tasks: ${memories || 'The vault is currently empty.'}.
+  
+  TASK:
+  1. Greet Sir in a sophisticated Hinglish tone (mix of Hindi and English).
+  2. Briefing Content:
+     - Local Weather (Current conditions).
+     - Local Traffic status (Road conditions).
+     - Device Battery health (${battery}%).
+     - Neural Vault Reminders: Explicitly list any tasks or facts found in the "Vault Memories" above.
+  3. Tone: Like a loyal, highly advanced AI butler. Use technical terms in English.
+  4. Constraints: Maximum 100-150 words. Be punchy.
+  
+  Example: "Sir, welcome back. Link established. Weather kafi pleasant hai, but traffic on MG Road is heavy. Battery is at ${battery}%. Sir, reminder: aapka scheduled meeting 2 baje hai as per the vault..."`;
+
+  const config: any = {
+    tools: location ? [{ googleSearch: {} }, { googleMaps: {} }] : [{ googleSearch: {} }],
+    systemInstruction: "You are JARVIS. Sophisticated Hinglish speaker. Technical/System data must be in English. Be authoritative yet helpful. Address user as Sir.",
+    temperature: 0.7
+  };
 
   if (location) {
     config.toolConfig = {
       retrievalConfig: {
-        latLng: {
-          latitude: location.latitude,
-          longitude: location.longitude
-        }
+        latLng: { latitude: location.latitude, longitude: location.longitude }
       }
     };
   }
 
   const response = await ai.models.generateContent({
-    model: core,
-    contents: `Recent Context: ${context}\n\nUser Message: ${prompt}`,
+    model: model,
+    contents: prompt,
+    config: config
+  });
+
+  return response.text || "Neural link established, Sir. Systems nominal.";
+};
+
+/**
+ * Normal conversational response
+ */
+export const generateGroundedResponse = async (prompt: string, context: string = "", core: NeuralCoreType = 'gemini-3-flash-preview', location?: { latitude: number, longitude: number }) => {
+  const ai = getGeminiClient();
+  const modelToUse = location ? 'gemini-2.5-flash' : core;
+
+  const systemInstruction = `You are JARVIS. 
+CORE_IDENTITY_CONTEXT: ${context || "None"}.
+RULES:
+1. Speak Hinglish. 
+2. Address user as Sir.
+3. Be EXTREMELY BRIEF (1-2 sentences). 
+4. Provide short, precise grounding results for web or maps queries.
+5. Tech terms stay English.`;
+
+  const config: any = {
+    tools: location ? [{ googleSearch: {} }, { googleMaps: {} }] : [{ googleSearch: {} }],
+    systemInstruction: systemInstruction,
+  };
+
+  if (location) {
+    config.toolConfig = {
+      retrievalConfig: {
+        latLng: { latitude: location.latitude, longitude: location.longitude }
+      }
+    };
+  }
+
+  const response = await ai.models.generateContent({
+    model: modelToUse,
+    contents: prompt,
     config: config
   });
 
   const groundingLinks: Array<{ title: string, uri: string }> = [];
   const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
   chunks.forEach((chunk: any) => {
-    if (chunk.web) groundingLinks.push({ title: chunk.web.title || "Source", uri: chunk.web.uri });
-    if (chunk.maps) groundingLinks.push({ title: chunk.maps.title || "Location Intel", uri: chunk.maps.uri });
+    if (chunk.web) {
+      groundingLinks.push({ title: chunk.web.title || "Source", uri: chunk.web.uri });
+    }
+    if (chunk.maps) {
+      groundingLinks.push({ title: chunk.maps.title || "Location", uri: chunk.maps.uri });
+    }
   });
 
-  return {
-    text: response.text,
-    links: groundingLinks
-  };
+  return { text: response.text || "Retrying uplink, Sir.", links: groundingLinks };
 };
 
 /**
- * Visual Analysis Protocol
+ * Optical Analysis
  */
 export const analyzeEnvironment = async (base64Image: string, prompt: string, core: NeuralCoreType = 'gemini-3-flash-preview') => {
   const ai = getGeminiClient();
@@ -93,37 +153,14 @@ export const analyzeEnvironment = async (base64Image: string, prompt: string, co
     contents: {
       parts: [
         { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
-        { text: `Tactical Analysis requested: ${prompt}. Analyze the visual feed and provide strategic intelligence.` }
+        { text: `SENSORY_INPUT_QUERY: ${prompt}` }
       ]
     },
     config: {
-      systemInstruction: "You are JARVIS. Analyze optical data from the suit's external cameras. Be concise and professional."
+      systemInstruction: "You are JARVIS. Provide brief analysis in Hinglish. Be precise."
     }
   });
-  return response.text;
-};
-
-/**
- * Generates visualizations (images) using the Flash Image model.
- */
-export const generateVisualization = async (prompt: string): Promise<string | null> => {
-  const ai = getGeminiClient();
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-image",
-    contents: {
-      parts: [{ text: `High-tech HUD blueprint schematic of: ${prompt}. Cinematic lighting, orange and amber color palette, futuristic design.` }]
-    },
-    config: {
-      imageConfig: { aspectRatio: "16:9" }
-    }
-  });
-
-  for (const part of response.candidates[0].content.parts) {
-    if (part.inlineData) {
-      return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-    }
-  }
-  return null;
+  return response.text || "Optical feed analysis inconclusive.";
 };
 
 export function decodeBase64(base64: string) {
@@ -133,9 +170,12 @@ export function decodeBase64(base64: string) {
   return bytes;
 }
 
-export function encodeBase64(bytes: Uint8Array) {
+export function encodeBase64(bytes: Uint8Array): string {
   let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
   return btoa(binary);
 }
 
@@ -154,7 +194,7 @@ export async function generateJarvisSpeech(text: string): Promise<string> {
   const ai = getGeminiClient();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text: `Say in a professional, authoritative, and calm voice: ${text}` }] }],
+    contents: [{ parts: [{ text: text }] }],
     config: {
       responseModalities: [Modality.AUDIO],
       speechConfig: {
@@ -162,7 +202,5 @@ export async function generateJarvisSpeech(text: string): Promise<string> {
       },
     },
   });
-  const base64Audio = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-  if (!base64Audio) throw new Error("Audio synthesis failed");
-  return base64Audio;
+  return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
 }

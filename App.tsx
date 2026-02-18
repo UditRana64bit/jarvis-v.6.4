@@ -9,187 +9,137 @@ import { sounds } from './services/soundService';
 import { 
   getGeminiClient, 
   decodeBase64, 
-  encodeBase64, 
   decodeAudioData, 
   generateJarvisSpeech, 
   generateGroundedResponse,
   extractFacts,
-  analyzeEnvironment
+  analyzeEnvironment,
+  generateSystemBriefing
 } from './services/geminiService';
-import { Modality, LiveServerMessage } from '@google/genai';
-
-const SESSION_TIMEOUT_SECONDS = 600; 
 
 const App: React.FC = () => {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [protocol, setProtocol] = useState<'classic' | 'stealth' | 'alert'>('classic');
   const [neuralCore, setNeuralCore] = useState<NeuralCoreType>('gemini-3-flash-preview');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [memories, setMemories] = useState<MemoryEntry[]>([]);
   const [userLocation, setUserLocation] = useState<{ latitude: number, longitude: number } | null>(null);
+  const [batteryLevel, setBatteryLevel] = useState(100);
   const [isOpticalActive, setIsOpticalActive] = useState(false);
-  
-  const [latency, setLatency] = useState(85);
-  const [tokenVelocity, setTokenVelocity] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isLiveActive, setIsLiveActive] = useState(false);
-  const [currentTranscription, setCurrentTranscription] = useState('');
   const [textInput, setTextInput] = useState('');
   const [diagnosticLogs, setDiagnosticLogs] = useState<string[]>([]);
-  const [secondsRemaining, setSecondsRemaining] = useState(SESSION_TIMEOUT_SECONDS);
+  const [showWidgets, setShowWidgets] = useState(false);
 
   const audioContextOutRef = useRef<AudioContext | null>(null);
-  const audioContextInRef = useRef<AudioContext | null>(null);
-  const nextStartTimeRef = useRef(0);
-  const sessionRef = useRef<any>(null);
-  const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  const inputSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Global Keyboard Shortcuts
   useEffect(() => {
-    if (!isUnlocked) return;
-
-    const handleShortcuts = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 'i') {
-        e.preventDefault();
-        inputRef.current?.focus();
-        addDiagnostic("INPUT_FIELD_FOCUSED");
-      }
-      if (e.ctrlKey && e.key === 'l') {
-        e.preventDefault();
-        initLiveSession();
-      }
-      if (e.ctrlKey && e.key === 'd') {
-        e.preventDefault();
-        toggleDefenceProtocol();
-      }
-      if (e.key === 'Escape') {
-        if (isLiveActive) cleanupSession();
-        if (isOpticalActive) setIsOpticalActive(false);
-        addDiagnostic("ALL_LINKS_TERMINATED");
-      }
-    };
-
-    window.addEventListener('keydown', handleShortcuts);
-    return () => window.removeEventListener('keydown', handleShortcuts);
-  }, [isUnlocked, isLiveActive, isOpticalActive, protocol]);
-
-  useEffect(() => {
-    document.body.className = `theme-${protocol}`;
-    addDiagnostic(`PROTOCOL_SYNC: ${protocol.toUpperCase()}`);
-    if (protocol === 'alert') {
-      sounds.playPowerUp();
-      addDiagnostic("DEFENCE_PROTOCOL_ENGAGED");
-    } else if (protocol === 'classic') {
-      addDiagnostic("DEFENCE_PROTOCOL_ABORTED");
+    // Battery monitoring
+    if ('getBattery' in navigator) {
+      (navigator as any).getBattery().then((battery: any) => {
+        setBatteryLevel(Math.floor(battery.level * 100));
+        battery.onlevelchange = () => setBatteryLevel(Math.floor(battery.level * 100));
+      });
     }
-  }, [protocol]);
 
-  useEffect(() => {
-    if (!isUnlocked) return;
-    const interval = setInterval(() => {
-      setLatency(prev => Math.max(15, Math.min(300, prev + (Math.random() * 20 - 10))));
-      setTokenVelocity(isProcessing ? Math.floor(Math.random() * 120 + 60) : 0);
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [isUnlocked, isProcessing]);
-
-  useEffect(() => {
-    if (!isUnlocked) return;
-    const resetTimer = () => setSecondsRemaining(SESSION_TIMEOUT_SECONDS);
-    const events = ['mousemove', 'keydown', 'mousedown', 'touchstart', 'scroll'];
-    events.forEach(event => window.addEventListener(event, resetTimer));
-    const countdown = setInterval(() => {
-      setSecondsRemaining(prev => (prev <= 1 ? 0 : prev - 1));
-    }, 1000);
-    return () => {
-      events.forEach(event => window.removeEventListener(event, resetTimer));
-      clearInterval(countdown);
-    };
-  }, [isUnlocked]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('jarvis_vault');
-    if (saved) {
-      const { t, m, mem } = JSON.parse(saved);
-      setTasks(t); setMessages(m.map((msg: any) => ({ ...msg, timestamp: new Date(msg.timestamp) }))); setMemories(mem);
-    }
+    // Geolocation
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(p => setUserLocation({ latitude: p.coords.latitude, longitude: p.coords.longitude }));
+      navigator.geolocation.getCurrentPosition(
+        p => setUserLocation({ latitude: p.coords.latitude, longitude: p.coords.longitude }),
+        err => console.warn("Location access denied")
+      );
+    }
+
+    const saved = localStorage.getItem('jarvis_v3_vault');
+    if (saved) {
+      try {
+        const { m, mem } = JSON.parse(saved);
+        setMessages((m || []).map((msg: any) => ({ ...msg, timestamp: new Date(msg.timestamp) }))); 
+        setMemories((mem || []).map((me: any) => ({ ...me, id: me.id || Math.random().toString(), timestamp: new Date(me.timestamp) })));
+      } catch (e) { console.error("Vault rehydration failed"); }
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('jarvis_vault', JSON.stringify({ t: tasks, m: messages, mem: memories }));
+    localStorage.setItem('jarvis_v3_vault', JSON.stringify({ m: messages, mem: memories }));
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [tasks, messages, memories]);
+  }, [messages, memories]);
 
   const addDiagnostic = (msg: string) => {
-    setDiagnosticLogs(prev => [msg, ...prev].slice(0, 20));
+    setDiagnosticLogs(prev => [msg, ...prev].slice(0, 8));
     sounds.playUiTick();
-  };
-
-  const toggleDefenceProtocol = () => {
-    if (protocol === 'alert') {
-      setProtocol('classic');
-      addDiagnostic("DEFENCE_DEACTIVATED");
-    } else {
-      setProtocol('alert');
-      addDiagnostic("DEFENCE_ACTIVATED");
-    }
-    sounds.playAuthSuccess();
   };
 
   const handleTextSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!textInput.trim() || isProcessing) return;
-    const input = textInput; setTextInput(''); setIsProcessing(true);
-    addDiagnostic("PACKET_TX_INIT...");
+    const input = textInput; 
+    setTextInput(''); 
+    setIsProcessing(true);
+    sounds.playNotification();
+    
     setMessages(prev => [...prev, { id: Date.now().toString(), role: MessageRole.USER, content: input, timestamp: new Date() }]);
 
     try {
       const context = memories.map(m => m.fact).join(". ");
       const result = await generateGroundedResponse(input, context, neuralCore, userLocation || undefined);
-      const botMsg: Message = { id: Date.now().toString(), role: MessageRole.JARVIS, content: result.text, groundingLinks: result.links, timestamp: new Date() };
+      
+      const botMsg: Message = { 
+        id: Date.now().toString(), 
+        role: MessageRole.JARVIS, 
+        content: result.text, 
+        timestamp: new Date(),
+        groundingLinks: result.links 
+      };
       setMessages(prev => [...prev, botMsg]);
       await speakResponse(botMsg.content);
-      runNeuralSync(input + " " + result.text);
-    } catch (err) {
-      sounds.playError();
-      addDiagnostic("NEURAL_SYNC_FAILED");
+      runNeuralSync(input + " | " + result.text);
+    } catch (err: any) {
+      addDiagnostic("SYNC_ERR");
+      setMessages(prev => [...prev, { id: 'err', role: MessageRole.JARVIS, content: "Sir, connectivity issue detected.", timestamp: new Date() }]);
     } finally { setIsProcessing(false); }
   };
 
-  const handleOpticalCapture = async (base64: string) => {
+  const handleOpticalCapture = async (base64Image: string) => {
     setIsOpticalActive(false);
     setIsProcessing(true);
-    addDiagnostic("ENVIRONMENT_ANALYSIS_INIT...");
+    addDiagnostic("OPTICAL_ANALYSIS");
+    sounds.playNotification();
+
     try {
-      const analysis = await analyzeEnvironment(base64, "Describe the environment and identify any tactical features.", neuralCore);
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: MessageRole.JARVIS, content: analysis, timestamp: new Date() }]);
+      const prompt = "Analyze this image and tell me what you see, Sir. Keep it brief in Hinglish.";
+      const analysis = await analyzeEnvironment(base64Image, prompt, neuralCore);
+      
+      const botMsg: Message = { 
+        id: Date.now().toString(), 
+        role: MessageRole.JARVIS, 
+        content: analysis, 
+        timestamp: new Date(),
+        imageUrl: `data:image/jpeg;base64,${base64Image}`
+      };
+      setMessages(prev => [...prev, botMsg]);
       await speakResponse(analysis);
-    } catch (e) { addDiagnostic("OPTICAL_ANALYSIS_FAILED"); }
-    finally { setIsProcessing(false); }
+      runNeuralSync("Optical Scan Analysis: " + analysis);
+    } catch (err) {
+      addDiagnostic("OPTICAL_ERR");
+      setMessages(prev => [...prev, { id: 'err', role: MessageRole.JARVIS, content: "Sir, optical uplink unstable.", timestamp: new Date() }]);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const runNeuralSync = async (interaction: string) => {
     const newFacts = await extractFacts(interaction, neuralCore);
     if (newFacts.length > 0) {
       setMemories(prev => {
-        const updated = [...prev];
-        newFacts.forEach(fact => {
-          if (!updated.some(m => m.fact.toLowerCase() === fact.toLowerCase())) {
-            updated.unshift({ id: Math.random().toString(36).substr(2, 9), fact, timestamp: new Date(), importance: 1 });
-          }
-        });
-        return updated.slice(0, 50);
+        const uniqueNew = newFacts.filter(f => !prev.some(p => p.fact.toLowerCase().includes(f.toLowerCase().slice(0, 15))));
+        if (uniqueNew.length === 0) return prev;
+        addDiagnostic(`VAULT_UP: ${uniqueNew.length}`);
+        return [...uniqueNew.map(f => ({ id: Math.random().toString(), fact: f, timestamp: new Date(), importance: 1 })), ...prev].slice(0, 20);
       });
-      addDiagnostic("SYNAPTIC_VAULT_UPDATED");
     }
   };
 
@@ -197,253 +147,164 @@ const App: React.FC = () => {
     try {
       setIsSpeaking(true);
       const audio = await generateJarvisSpeech(text);
+      if (!audio) { setIsSpeaking(false); return; }
       const ctx = audioContextOutRef.current || new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       audioContextOutRef.current = ctx;
       const buffer = await decodeAudioData(decodeBase64(audio), ctx, 24000, 1);
       const source = ctx.createBufferSource();
-      source.buffer = buffer; source.connect(ctx.destination);
+      source.buffer = buffer; 
+      source.connect(ctx.destination);
       source.onended = () => setIsSpeaking(false);
       source.start();
     } catch (e) { setIsSpeaking(false); }
   };
 
-  const initLiveSession = async () => {
-    if (isLiveActive) { cleanupSession(); return; }
-    try {
-      addDiagnostic("INITIATING_NEURAL_UPLINK...");
-      const ai = getGeminiClient();
-      audioContextOutRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      audioContextInRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      const sessionPromise = ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
-        callbacks: {
-          onopen: () => {
-            setIsLiveActive(true); sounds.playPowerUp();
-            const source = audioContextInRef.current!.createMediaStreamSource(stream);
-            const scriptProcessor = audioContextInRef.current!.createScriptProcessor(4096, 1, 1);
-            inputSourceRef.current = source; scriptProcessorRef.current = scriptProcessor;
-            scriptProcessor.onaudioprocess = (e) => {
-              const inputData = e.inputBuffer.getChannelData(0);
-              const int16 = new Int16Array(inputData.length);
-              for (let i = 0; i < inputData.length; i++) int16[i] = inputData[i] * 32768;
-              sessionPromise.then(session => { if (session && isLiveActive) session.sendRealtimeInput({ media: { data: encodeBase64(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm' } }); });
-            };
-            source.connect(scriptProcessor); scriptProcessor.connect(audioContextInRef.current!.destination);
-          },
-          onmessage: async (m: LiveServerMessage) => {
-            const audio = m.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-            if (audio) {
-              setIsSpeaking(true);
-              const buffer = await decodeAudioData(decodeBase64(audio), audioContextOutRef.current!, 24000, 1);
-              const source = audioContextOutRef.current! .createBufferSource();
-              source.buffer = buffer; source.connect(audioContextOutRef.current!.destination);
-              source.onended = () => { sourcesRef.current.delete(source); if (sourcesRef.current.size === 0) setIsSpeaking(false); };
-              source.start(nextStartTimeRef.current); nextStartTimeRef.current += buffer.duration;
-              sourcesRef.current.add(source);
-            }
-            if (m.serverContent?.outputTranscription) setCurrentTranscription(prev => prev + m.serverContent!.outputTranscription!.text);
-            if (m.serverContent?.turnComplete) {
-              if (currentTranscription) {
-                setMessages(prev => [...prev, { id: Date.now().toString(), role: MessageRole.JARVIS, content: currentTranscription, timestamp: new Date() }]);
-                runNeuralSync(currentTranscription); setCurrentTranscription('');
-              }
-            }
-          },
-          onclose: () => cleanupSession(), onerror: () => cleanupSession()
-        },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Fenrir' } } },
-          systemInstruction: `You are JARVIS. Address me as Sir. Neural Vault: ${memories.map(m=>m.fact).join(". ")}`,
-          outputAudioTranscription: {}
-        }
-      });
-      sessionRef.current = await sessionPromise;
-    } catch (err) { cleanupSession(); }
-  };
-
-  const cleanupSession = () => {
-    setIsLiveActive(false); setIsSpeaking(false);
-    sourcesRef.current.forEach(s => { try { s.stop(); } catch(e) {} });
-    sourcesRef.current.clear(); nextStartTimeRef.current = 0;
-    scriptProcessorRef.current?.disconnect(); inputSourceRef.current?.disconnect();
-    sessionRef.current?.close(); sessionRef.current = null;
-    addDiagnostic("VOICE_LINK_TERMINATED");
-  };
-
   const handleUnlock = async (profile: string) => {
-    setIsUnlocked(true); sounds.playAmbientHum();
+    setIsUnlocked(true);
     setIsProcessing(true);
+    addDiagnostic("CORE_AWAKEN");
+    sounds.playPowerUp();
+    
     try {
-      const greeting = `Welcome Back Boss, Terminal v2.6 online. Shall we begin, Sir?`;
-      setMessages([{ id: 'init', role: MessageRole.JARVIS, content: greeting, timestamp: new Date() }]);
-      await speakResponse(greeting);
-    } finally { setIsProcessing(false); }
+      const vaultCtx = memories.map(m => m.fact).join(", ");
+      const briefing = await generateSystemBriefing(userLocation, batteryLevel, vaultCtx, neuralCore);
+      setMessages([{ id: 'init', role: MessageRole.JARVIS, content: briefing, timestamp: new Date() }]);
+      speakResponse(briefing);
+    } catch (e) {
+      const fallback = "System ready, Sir. Sab kuch stable hai.";
+      setMessages([{ id: 'init', role: MessageRole.JARVIS, content: fallback, timestamp: new Date() }]);
+      speakResponse(fallback);
+    } finally {
+      setIsProcessing(false);
+      if (window.innerWidth >= 1024) setShowWidgets(true);
+    }
   };
 
   if (!isUnlocked) return <LoginScreen onUnlock={handleUnlock} />;
 
   return (
-    <div className="relative h-screen flex flex-col bg-[#050201] text-amber-50">
-      <OpticalUplink isActive={isOpticalActive} onCapture={handleOpticalCapture} />
-      
-      <header className="relative z-30 glass-dark border-b border-[rgba(var(--accent),0.1)] px-8 py-5 flex items-center justify-between">
-        <div className="flex items-center gap-10">
-          <div className="flex items-center gap-4">
-             <div className="w-12 h-12 border-2 accent-border rounded-xl flex items-center justify-center font-orbitron font-black text-2xl accent-text bg-[rgba(var(--accent),0.1)] shadow-[0_0_25px_rgba(var(--accent),0.3)]">J</div>
-             <div className="flex flex-col">
-                <h1 className="font-orbitron font-black tracking-[0.4em] text-xl accent-text uppercase leading-none">JARVIS_v2.6</h1>
-                <span className="text-[8px] font-orbitron opacity-40 tracking-[0.3em] uppercase mt-1">ORBITAL_ENVIRONMENT_LINK</span>
-             </div>
-          </div>
-          <div className="hidden lg:flex gap-3">
-             {(['gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-flash-lite-latest'] as NeuralCoreType[]).map(c => (
-               <button key={c} onClick={() => setNeuralCore(c)} className={`px-4 py-2 rounded-xl font-orbitron text-[9px] tracking-widest uppercase transition-all ${neuralCore === c ? 'accent-bg text-black font-bold scale-105' : 'text-amber-500/20 hover:text-amber-500/50'}`}>
-                 {c.includes('pro') ? 'PRO' : c.includes('lite') ? 'LPU' : 'FLSH'}
-               </button>
-             ))}
+    <div className="relative h-screen flex flex-col overflow-hidden bg-[#030100] font-orbitron selection:bg-amber-500/30">
+      <header className="absolute top-0 inset-x-0 z-[60] p-2 lg:p-6 pointer-events-none flex justify-between items-start">
+        <div className="pointer-events-auto flex items-center gap-1.5 lg:gap-3">
+          <div className="w-7 h-7 lg:w-9 lg:h-9 hud-glass rounded-lg flex items-center justify-center font-black text-[10px] lg:text-base accent-text shadow-lg">J</div>
+          <div className="hidden xs:block">
+            <h1 className="font-black tracking-widest text-[8px] lg:text-[11px] accent-text uppercase">JARVIS</h1>
+            <span className="text-[5px] lg:text-[7px] opacity-30 tracking-widest uppercase block -mt-1">STARK::CHIEF</span>
           </div>
         </div>
-        
-        <div className="flex items-center gap-8">
-          <div className="hidden xl:flex gap-8">
-             <div className="flex flex-col items-end"><span className="text-[7px] font-orbitron opacity-30 uppercase">LATENCY</span><span className="text-sm font-mono accent-text font-bold">{latency.toFixed(0)}ms</span></div>
-             <div className="flex flex-col items-end"><span className="text-[7px] font-orbitron opacity-30 uppercase">THREAT</span><span className={`text-sm font-mono font-bold ${protocol === 'alert' ? 'text-red-500 animate-pulse' : 'text-green-500'}`}>{protocol === 'alert' ? 'OMEGA' : 'NULL'}</span></div>
-          </div>
-          <button onClick={() => setIsOpticalActive(true)} className="px-6 py-3 border border-[rgba(var(--accent),0.4)] rounded-xl font-orbitron text-[10px] tracking-widest text-amber-500/60 hover:accent-text hover:accent-border transition-all">OPTICAL_LINK</button>
-          <button onClick={initLiveSession} title="Shortcut: Ctrl+L" className={`px-10 py-3 rounded-xl border font-orbitron text-[10px] tracking-widest transition-all ${isLiveActive ? 'bg-[rgba(var(--accent),0.2)] accent-border accent-text font-bold' : 'bg-black/60 border-[rgba(var(--accent),0.3)] text-amber-900'}`}>{isLiveActive ? 'KILL_VOICE' : 'INIT_VOICE'}</button>
+        <div className="pointer-events-auto flex gap-1.5">
+          <button onClick={() => setShowWidgets(!showWidgets)} className="lg:hidden hud-glass px-2 py-1 rounded-md text-[6px] tracking-widest uppercase">HUD</button>
+          <button onClick={() => setIsOpticalActive(true)} className="hud-glass px-2 py-1 rounded-md text-[6px] lg:text-[8px] tracking-widest uppercase">SCAN</button>
         </div>
       </header>
 
-      <main className="flex-1 flex overflow-hidden relative z-10">
-        {/* REFINED DIAGNOSTIC SIDEBAR (LEFT) */}
-        <aside className="hidden xl:flex flex-col w-96 border-r border-[rgba(var(--accent),0.1)] glass-dark">
-           {/* DEDICATED TOP PANEL: NEURAL COMMAND CENTER (MOVED TO LEFT) */}
-           <div className="p-8 border-b border-[rgba(var(--accent),0.1)] bg-black/40 space-y-6">
-              <div className="flex items-center justify-between mb-2">
-                 <div className="flex flex-col">
-                    <span className="text-[9px] font-orbitron accent-text tracking-[0.4em] uppercase font-bold">NEURAL_CORE</span>
-                    <span className="text-[7px] font-mono opacity-30">UPLINK_0x88_STABLE</span>
-                 </div>
-                 <div className="text-right flex flex-col items-end">
-                    <span className="text-[9px] font-orbitron accent-text tracking-[0.4em] uppercase font-bold">{isProcessing ? 'SCANNING' : 'STANDBY'}</span>
-                    <span className="text-[7px] font-mono opacity-30">LOAD: {isProcessing ? '84%' : '12%'}</span>
-                 </div>
-              </div>
-
-              <div className="relative w-full aspect-square glass rounded-3xl border border-[rgba(var(--accent),0.2)] overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] group">
-                <JarvisCore isProcessing={isLiveActive || isProcessing} isSpeaking={isSpeaking} />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                 <div className="p-2 bg-white/5 rounded-lg border border-white/5 flex flex-col items-center">
-                    <span className="text-[6px] font-orbitron opacity-40 uppercase">SYNC_PROB</span>
-                    <span className="text-[10px] font-mono accent-text">98.4%</span>
-                 </div>
-                 <div className="p-2 bg-white/5 rounded-lg border border-white/5 flex flex-col items-center">
-                    <span className="text-[6px] font-orbitron opacity-40 uppercase">VAULT_KEY</span>
-                    <span className="text-[10px] font-mono accent-text">RSA_4096</span>
-                 </div>
-              </div>
+      <main className="flex-1 relative flex overflow-hidden">
+        {/* Left Sidebar */}
+        <aside className={`absolute left-0 top-0 bottom-0 z-50 w-full sm:w-56 p-3 lg:p-5 transition-all duration-500 backdrop-blur-3xl lg:backdrop-blur-none bg-black/95 lg:bg-transparent ${showWidgets ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0'}`}>
+           <div className="flex justify-between items-center mb-4 lg:hidden">
+              <span className="text-[7px] tracking-widest accent-text uppercase font-bold">CORE_SYSTEMS</span>
+              <button onClick={() => setShowWidgets(false)} className="text-base text-white/40">×</button>
            </div>
-
-           <div className="flex-1 flex flex-col p-6 space-y-6 overflow-hidden">
-              <span className="text-[8px] font-orbitron accent-text tracking-[0.4em] mb-2 uppercase opacity-50">DIAGNOSTIC_UPLINK</span>
-              <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar pr-2">
-                 {diagnosticLogs.map((log, i) => (
-                   <div key={i} className="text-[10px] font-mono accent-text tracking-tighter opacity-40 hover:opacity-100 transition-opacity whitespace-nowrap overflow-hidden">
-                     <span className="text-amber-900/60 mr-2">[{new Date().toLocaleTimeString('en-GB', {hour12: false})}]</span>
-                     {log}
-                   </div>
-                 ))}
-              </div>
-              
-              <div className="pt-6 border-t border-[rgba(var(--accent),0.1)]">
-                 <span className="text-[8px] font-orbitron accent-text tracking-[0.4em] mb-4 uppercase opacity-50">KEYBOARD_NODES</span>
-                 <div className="space-y-2">
-                    <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Ctrl+L</span><span>LIVE_TOGGLE</span></div>
-                    <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Ctrl+I</span><span>FOCUS_INPUT</span></div>
-                    <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Ctrl+D</span><span>DEFENCE_TOGGLE</span></div>
-                    <div className="flex justify-between text-[9px] font-mono opacity-40 italic"><span>Esc</span><span>KILL_ALL</span></div>
-                 </div>
-              </div>
+           <DashboardWidgets isDefenceActive={protocol === 'alert'} onToggleDefence={() => setProtocol(p => p === 'alert' ? 'classic' : 'alert')} />
+           <div className="mt-4 border-t border-white/5 pt-3">
+             <span className="text-[5px] opacity-30 tracking-widest block mb-1.5 font-bold uppercase">Uplink Activity</span>
+             <div className="space-y-1 max-h-20 overflow-y-auto">
+               {diagnosticLogs.map((log, i) => <div key={i} className="text-[6px] font-mono opacity-40 truncate">>> {log}</div>)}
+             </div>
            </div>
         </aside>
 
-        <section className="flex-1 flex flex-col relative w-full overflow-hidden">
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 sm:px-12 xl:px-40 py-12 space-y-12 scroll-smooth custom-scrollbar">
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex ${msg.role === MessageRole.USER ? 'justify-end' : 'justify-start'} animate-scan-entry`}>
-                <div className="max-w-[90%] sm:max-w-[80%] xl:max-w-[75%] group">
-                  <div className={`glass p-8 rounded-3xl border-t-2 shadow-2xl transition-all ${msg.role === MessageRole.USER ? 'border-amber-900/20 bg-amber-950/5' : 'accent-border bg-black/90'}`}>
-                    <div className="flex items-center gap-3 mb-6 opacity-30"><span className="text-[9px] font-orbitron tracking-[0.4em] uppercase">{msg.role === MessageRole.USER ? 'USER' : 'JARVIS'}</span><div className="h-[1px] flex-1 bg-[rgba(var(--accent),0.15)]"></div></div>
-                    <p className="text-sm sm:text-[16px] font-light text-amber-50/90 whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+        {/* HUD Visualization Area */}
+        <section className="flex-1 flex flex-col items-center justify-center p-2 relative min-h-0">
+          <div className="absolute inset-0 pointer-events-none flex items-center justify-center overflow-hidden">
+            <div className="w-[200px] h-[200px] sm:w-[320px] sm:h-[320px] opacity-25">
+              <JarvisCore isProcessing={isProcessing} isSpeaking={isSpeaking} />
+            </div>
+          </div>
+          
+          <div ref={scrollRef} className="absolute inset-0 flex flex-col justify-end p-2 lg:p-8 overflow-y-auto pt-16 pb-20 scroll-smooth">
+            <div className="max-w-lg mx-auto space-y-2 w-full">
+              {messages.map((msg) => (
+                <div key={msg.id} className={`flex ${msg.role === MessageRole.USER ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`px-3 py-2 rounded-xl border max-w-[90%] transition-all ${msg.role === MessageRole.USER ? 'border-white/5 bg-black/40 text-right backdrop-blur-sm shadow-sm' : 'accent-border bg-black/80 backdrop-blur-xl shadow-lg'}`}>
+                    <div className="text-[5px] font-black opacity-20 mb-1 tracking-[0.1em] uppercase">{msg.role === MessageRole.USER ? 'U_CMD' : 'J_RES'}</div>
+                    {msg.imageUrl && (
+                      <div className="mb-2 rounded-lg overflow-hidden border border-white/10">
+                        <img src={msg.imageUrl} alt="Optical Feed" className="w-full h-auto opacity-90" />
+                      </div>
+                    )}
+                    <p className={`text-[8px] lg:text-[11px] font-light leading-snug ${msg.role === MessageRole.USER ? 'opacity-60' : 'opacity-100'}`}>{msg.content}</p>
                     {msg.groundingLinks && msg.groundingLinks.length > 0 && (
-                      <div className="mt-8 pt-8 border-t border-[rgba(var(--accent),0.1)] flex flex-wrap gap-4">
+                      <div className="mt-1.5 flex flex-wrap gap-1 pt-1.5 border-t border-white/5">
                         {msg.groundingLinks.map((link, idx) => (
-                          <a key={idx} href={link.uri} target="_blank" rel="noopener noreferrer" className="px-5 py-2.5 bg-[rgba(var(--accent),0.05)] border border-[rgba(var(--accent),0.2)] rounded-2xl text-[10px] font-mono accent-text hover:bg-[rgba(var(--accent),0.2)] transition-all">SOURCE::{link.title.toUpperCase()}</a>
+                          <a 
+                            key={idx} 
+                            href={link.uri} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-[5px] lg:text-[6px] text-amber-500/40 hover:text-amber-500 underline truncate max-w-[80px] transition-colors"
+                          >
+                            {link.title}
+                          </a>
                         ))}
                       </div>
                     )}
                   </div>
                 </div>
-              </div>
-            ))}
-            {(isProcessing || currentTranscription) && (
-               <div className="flex justify-start">
-                  <div className="glass p-10 rounded-3xl border-l-4 accent-border bg-black/80 animate-pulse">
-                     <span className="font-orbitron text-[11px] tracking-[0.6em] accent-text opacity-80 uppercase">{currentTranscription ? 'NEURAL_VOICE_LINK...' : 'SYNAPTIC_PROCESSING...'}</span>
-                     {currentTranscription && <p className="mt-6 text-amber-100/60 font-mono text-xs italic">"{currentTranscription}"</p>}
-                  </div>
-               </div>
-            )}
-          </div>
-
-          <div className="px-6 sm:px-12 xl:px-40 py-10 glass-dark border-t border-[rgba(var(--accent),0.15)] shadow-[0_-25px_100px_rgba(0,0,0,0.8)]">
-            <form onSubmit={handleTextSubmit} className="relative max-w-6xl mx-auto w-full group">
-              <input 
-                ref={inputRef}
-                type="text" 
-                value={textInput} 
-                onChange={(e) => setTextInput(e.target.value)} 
-                placeholder="STRATEGIC_INPUT (Ctrl+I)..." 
-                className="w-full bg-black/60 border border-[rgba(var(--accent),0.2)] rounded-3xl px-12 py-8 font-orbitron text-xs tracking-[0.6em] accent-text focus:outline-none focus:accent-border focus:bg-black/90 transition-all shadow-2xl placeholder:accent-text placeholder:opacity-10" 
-              />
-              <button type="submit" className={`absolute right-12 top-1/2 -translate-y-1/2 accent-text scale-125 transition-all ${textInput ? 'opacity-100' : 'opacity-10 pointer-events-none'}`}>
-                <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13 5l7 7m0 0l-7 7m7-7H3"/></svg>
-              </button>
-            </form>
+              ))}
+              {isProcessing && <div className="text-[5px] animate-pulse accent-text text-center tracking-[0.8em] py-2 uppercase font-bold">Neural Uplink Active</div>}
+            </div>
           </div>
         </section>
 
-        {/* OPERATIONS SIDEBAR (RIGHT) */}
-        <aside className="hidden 2xl:flex flex-col w-96 border-l border-[rgba(var(--accent),0.1)] glass-dark overflow-y-auto custom-scrollbar p-8 space-y-10">
-           <DashboardWidgets 
-             tasks={tasks} 
-             memories={memories} 
-             userLocation={userLocation} 
-             isDefenceActive={protocol === 'alert'}
-             onToggleDefence={toggleDefenceProtocol}
-           />
-           
-           <div className="space-y-6">
-              <span className="text-[10px] font-orbitron accent-text tracking-[0.4em] uppercase font-bold">NEURAL_SYNAPSE_MAP</span>
-              <div className="relative space-y-4">
-                 {memories.slice(0, 15).map((m, i) => (
-                   <div key={m.id} className="p-4 bg-[rgba(var(--accent),0.03)] border border-[rgba(var(--accent),0.1)] rounded-xl animate-scan-entry hover:bg-[rgba(var(--accent),0.1)] transition-all">
-                     <div className="flex items-center gap-2 opacity-30 text-[7px] font-mono mb-1">
-                        <div className="w-1 h-1 accent-bg rounded-full"></div>
-                        <span>NODE_0x{i.toString(16).toUpperCase()}</span>
-                     </div>
-                     <p className="text-[10px] font-mono uppercase opacity-70 leading-relaxed">{m.fact}</p>
-                   </div>
-                 ))}
-              </div>
-           </div>
+        {/* Right Vault Panel */}
+        <aside className="hidden lg:block w-52 p-5 pointer-events-none">
+          <div className="hud-glass p-3.5 rounded-xl pointer-events-auto h-full flex flex-col border border-amber-500/5">
+            <span className="text-[6px] accent-text tracking-[0.2em] mb-3 block font-bold uppercase opacity-30">Memory Vault</span>
+            <div className="space-y-2.5 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+              {memories.map(m => (
+                <div key={m.id} className="border-l border-amber-500/10 pl-2 py-0.5">
+                  <p className="text-[7px] opacity-40 leading-tight font-light">{m.fact}</p>
+                  <span className="text-[4px] opacity-20 font-mono block mt-0.5 uppercase tracking-tighter">NODE_0x{m.id.slice(-4)}</span>
+                </div>
+              ))}
+              {memories.length === 0 && <div className="text-[6px] opacity-10 text-center py-2 italic uppercase tracking-widest">Null Link</div>}
+            </div>
+          </div>
         </aside>
       </main>
+
+      {/* Input Field Fixed at Bottom */}
+      <div className="absolute bottom-0 inset-x-0 z-[100] w-full max-w-lg mx-auto px-4 pb-4 lg:pb-6">
+        <form onSubmit={handleTextSubmit} className="relative group touch-auto">
+          <div className="absolute inset-0 bg-amber-500/5 blur-lg rounded-full opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
+          <input 
+            ref={inputRef}
+            type="text" value={textInput} onChange={e => setTextInput(e.target.value)}
+            placeholder="INPUT COMMAND >>"
+            className="w-full bg-black/80 border border-white/5 rounded-full px-5 py-2.5 lg:py-3 text-[8px] lg:text-[11px] tracking-widest text-amber-500 focus:outline-none focus:border-amber-500/50 transition-all uppercase font-bold shadow-2xl placeholder:opacity-20"
+          />
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 flex gap-1">
+            <div className={`w-0.5 h-0.5 rounded-full ${isProcessing ? 'bg-amber-500 animate-ping' : 'bg-amber-900/20'}`}></div>
+            <div className={`w-0.5 h-0.5 rounded-full ${isSpeaking ? 'bg-blue-500 animate-pulse' : 'bg-blue-900/20'}`}></div>
+          </div>
+        </form>
+      </div>
+
+      <footer className="p-2 lg:p-3 flex justify-between items-center border-t border-white/5 bg-black/80 backdrop-blur-md relative z-[60]">
+         <div className="text-[5px] lg:text-[6px] font-mono opacity-10 tracking-[0.4em] uppercase font-bold">UDIT_RANA // STARK_INDUSTRIES_BUILD</div>
+         <div className="flex gap-3">
+           <div className="text-right">
+             <span className="block text-[4px] lg:text-[5px] opacity-20 uppercase tracking-widest">Bat</span>
+             <span className={`text-[7px] lg:text-[9px] font-mono font-bold ${batteryLevel < 20 ? 'text-red-500 animate-pulse' : 'accent-text'}`}>{batteryLevel}%</span>
+           </div>
+           <div className="text-right">
+             <span className="block text-[4px] lg:text-[5px] opacity-20 uppercase tracking-widest">Core</span>
+             <span className="text-[7px] lg:text-[9px] font-mono accent-text font-bold uppercase">Stable</span>
+           </div>
+         </div>
+      </footer>
+      <OpticalUplink isActive={isOpticalActive} onCapture={handleOpticalCapture} />
     </div>
   );
 };

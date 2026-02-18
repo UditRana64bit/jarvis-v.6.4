@@ -14,10 +14,13 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({ isProcessing, isSpeaking
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const frameIdRef = useRef<number | null>(null);
   const coreGroupRef = useRef<THREE.Group | null>(null);
+  
+  // Use refs for animation variables to prevent scene disposal on prop change
+  const stateRef = useRef({ isProcessing, isSpeaking });
 
-  const AMBER = 0xffaa00;
-  const BRIGHT_AMBER = 0xffcc33;
-  const DEEP_ORANGE = 0xcc4400;
+  useEffect(() => {
+    stateRef.current = { isProcessing, isSpeaking };
+  }, [isProcessing, isSpeaking]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -25,10 +28,9 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({ isProcessing, isSpeaking
     const width = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
 
-    // 1. SCENE SETUP
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
-    camera.position.set(0, 0, 7);
+    camera.position.z = 6;
     sceneRef.current = scene;
     cameraRef.current = camera;
 
@@ -42,157 +44,108 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({ isProcessing, isSpeaking
     scene.add(rootGroup);
     coreGroupRef.current = rootGroup;
 
-    // 2. CENTRAL SINGULARITY (The bright white-amber heart)
-    const singularityGeo = new THREE.SphereGeometry(0.3, 32, 32);
+    // 1. NEURAL SINGULARITY (Core heart)
+    const singularityGeo = new THREE.IcosahedronGeometry(0.5, 3);
     const singularityMat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
+      wireframe: true,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.3,
       blending: THREE.AdditiveBlending
     });
     const singularity = new THREE.Mesh(singularityGeo, singularityMat);
     rootGroup.add(singularity);
 
-    const singularityGlowGeo = new THREE.SphereGeometry(0.8, 32, 32);
-    const singularityGlowMat = new THREE.ShaderMaterial({
-      uniforms: { color: { value: new THREE.Color(AMBER) } },
-      vertexShader: `
-        varying vec3 vNormal;
-        void main() {
-          vNormal = normalize(normalMatrix * normal);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        varying vec3 vNormal;
-        uniform vec3 color;
-        void main() {
-          float intensity = pow(0.7 - dot(vNormal, vec3(0, 0, 1.0)), 6.0);
-          gl_FragColor = vec4(color, intensity * 0.8);
-        }
-      `,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      side: THREE.BackSide
-    });
-    const singularityGlow = new THREE.Mesh(singularityGlowGeo, singularityGlowMat);
-    rootGroup.add(singularityGlow);
+    const innerHeartGeo = new THREE.SphereGeometry(0.12, 32, 32);
+    const innerHeartMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const innerHeart = new THREE.Mesh(innerHeartGeo, innerHeartMat);
+    rootGroup.add(innerHeart);
 
-    // 3. THE "LOOM" - High density rotating arcs
-    const createDataLayer = (radius: number, arcCount: number, thickness: number, speedMult: number, opacity: number) => {
-      const layerGroup = new THREE.Group();
+    // 2. ROTATING RINGS (Holographic Panes)
+    const createRing = (radius: number, color: number, opacity: number, segments: number = 64) => {
+      const ringGroup = new THREE.Group();
+      const ringGeo = new THREE.TorusGeometry(radius, 0.005, 4, segments, Math.PI * 1.5);
+      const ringMat = new THREE.MeshBasicMaterial({ 
+        color, 
+        transparent: true, 
+        opacity, 
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide 
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = Math.random() * Math.PI;
+      ring.rotation.y = Math.random() * Math.PI;
+      ringGroup.add(ring);
       
-      for (let i = 0; i < arcCount; i++) {
-        const arcLen = Math.random() * Math.PI * 0.8 + 0.2;
-        const ringGeo = new THREE.TorusGeometry(radius, thickness, 4, 64, arcLen);
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: Math.random() > 0.3 ? AMBER : BRIGHT_AMBER,
-          transparent: true,
-          opacity: opacity + Math.random() * 0.2,
-          blending: THREE.AdditiveBlending,
-          side: THREE.DoubleSide
-        });
-        
-        const mesh = new THREE.Mesh(ringGeo, ringMat);
-        mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-        mesh.userData = { speed: (Math.random() - 0.5) * 0.02 * speedMult };
-        layerGroup.add(mesh);
+      for(let i=0; i<8; i++) {
+        const dotGeo = new THREE.BoxGeometry(0.04, 0.04, 0.04);
+        const dot = new THREE.Mesh(dotGeo, ringMat);
+        const angle = (i / 8) * Math.PI * 2;
+        dot.position.x = Math.cos(angle) * radius;
+        dot.position.y = Math.sin(angle) * radius;
+        ringGroup.add(dot);
       }
-      return layerGroup;
+      return ringGroup;
     };
 
-    // Inner Loom (Tight & Fast)
-    const innerLoom = createDataLayer(1.2, 12, 0.015, 2.5, 0.4);
-    rootGroup.add(innerLoom);
+    const AMBER = 0xffaa00;
+    const rings: THREE.Group[] = [
+      createRing(0.9, AMBER, 0.5),
+      createRing(1.2, AMBER, 0.4),
+      createRing(1.7, AMBER, 0.2),
+      createRing(2.1, AMBER, 0.1)
+    ];
+    rings.forEach(r => rootGroup.add(r));
 
-    // Outer Loom (Wider & Strategic)
-    const outerLoom = createDataLayer(2.2, 8, 0.01, 1.2, 0.2);
-    rootGroup.add(outerLoom);
-
-    // 4. NEURAL NODES (Cloud of points)
-    const pointsGeo = new THREE.BufferGeometry();
-    const positions = [];
-    const colors = [];
-    const colorObj = new THREE.Color(AMBER);
-    
-    for (let i = 0; i < 400; i++) {
-      const r = 2.0 + Math.random() * 0.8;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      positions.push(
-        r * Math.sin(phi) * Math.cos(theta),
-        r * Math.sin(phi) * Math.sin(theta),
-        r * Math.cos(phi)
-      );
-      colors.push(colorObj.r, colorObj.g, colorObj.b);
-    }
-    
-    pointsGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    pointsGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    
-    const pointsMat = new THREE.PointsMaterial({
-      size: 0.03,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.6,
-      blending: THREE.AdditiveBlending
-    });
-    const neuralNodes = new THREE.Points(pointsGeo, pointsMat);
-    rootGroup.add(neuralNodes);
-
-    // 5. EXTERNAL DATA SHELL (Broken circuitry segments)
-    const shellGeo = new THREE.SphereGeometry(2.8, 24, 24);
+    // 3. OUTER DATA SHELL
+    const shellGeo = new THREE.SphereGeometry(2.5, 12, 12);
     const shellMat = new THREE.MeshBasicMaterial({
-      color: DEEP_ORANGE,
+      color: AMBER,
       wireframe: true,
       transparent: true,
-      opacity: 0.05,
+      opacity: 0.03,
       blending: THREE.AdditiveBlending
     });
     const shell = new THREE.Mesh(shellGeo, shellMat);
     rootGroup.add(shell);
 
-    // 6. ANIMATION LOOP
+    // 4. PARTICLE FIELD (Neural Network)
+    const particlesGeo = new THREE.BufferGeometry();
+    const particleCount = 1000;
+    const posArr = new Float32Array(particleCount * 3);
+    for(let i=0; i<particleCount*3; i++) posArr[i] = (Math.random() - 0.5) * 8;
+    particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+    const particlesMat = new THREE.PointsMaterial({ 
+      size: 0.012, 
+      color: AMBER, 
+      transparent: true, 
+      opacity: 0.3,
+      blending: THREE.AdditiveBlending 
+    });
+    const particleSystem = new THREE.Points(particlesGeo, particlesMat);
+    rootGroup.add(particleSystem);
+
     const animate = (time: number) => {
       const delta = time * 0.001;
-      const reactivity = isProcessing ? 3.0 : 1.0;
-      const pulseFactor = isSpeaking ? 1.5 : 1.0;
+      const { isProcessing: activeProcessing, isSpeaking: activeSpeaking } = stateRef.current;
+      const reactivity = activeProcessing ? 6.0 : (activeSpeaking ? 3.0 : 1.0);
 
-      if (rootGroup) {
-        // Base Rotation
-        rootGroup.rotation.y += 0.002 * reactivity;
-        rootGroup.rotation.z += 0.001;
+      rootGroup.rotation.y += 0.0015 * reactivity;
+      rootGroup.rotation.x = Math.sin(delta * 0.5) * 0.1;
+      
+      rings.forEach((ring, i) => {
+        ring.rotation.z += (0.008 + (i * 0.004)) * reactivity;
+        ring.rotation.x += (0.003 + (i * 0.001)) * reactivity;
+      });
 
-        // Animate all meshes in loops
-        rootGroup.traverse((obj) => {
-          if (obj instanceof THREE.Mesh && obj.userData.speed) {
-            obj.rotation.x += obj.userData.speed * reactivity;
-            obj.rotation.y += obj.userData.speed * 0.5 * reactivity;
-          }
-        });
+      singularity.rotation.y -= 0.02 * reactivity;
+      const s = 1.0 + Math.sin(delta * 5) * 0.06 * (activeSpeaking ? 2.5 : 1);
+      singularity.scale.setScalar(s);
+      innerHeart.scale.setScalar(s * 0.6);
+      innerHeart.material.opacity = 0.5 + Math.sin(delta * 10) * 0.5;
 
-        // Singularity Pulse
-        const s = 1.0 + Math.sin(delta * 10.0 * pulseFactor) * 0.1 * pulseFactor;
-        singularity.scale.setScalar(s);
-        singularityMat.opacity = 0.8 + Math.sin(delta * 15.0) * 0.2;
-        
-        // Glow Intensity
-        singularityGlow.scale.setScalar(1.0 + Math.sin(delta * 2.0) * 0.05);
-        
-        // Nodes Rotation
-        neuralNodes.rotation.y -= 0.001 * reactivity;
-        
-        // Shell Oscillation
-        shell.rotation.y += 0.0005 * reactivity;
-        shell.scale.setScalar(1.0 + Math.sin(delta * 0.5) * 0.02);
-      }
-
-      if (cameraRef.current) {
-        // Subtle drift
-        cameraRef.current.position.x = Math.sin(delta * 0.2) * 0.2;
-        cameraRef.current.position.y = Math.cos(delta * 0.15) * 0.2;
-        cameraRef.current.lookAt(0, 0, 0);
-      }
+      shell.rotation.y -= 0.0005 * reactivity;
+      particleSystem.rotation.y -= 0.0003 * reactivity;
 
       renderer.render(scene, camera);
       frameIdRef.current = requestAnimationFrame(animate);
@@ -200,37 +153,25 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({ isProcessing, isSpeaking
 
     frameIdRef.current = requestAnimationFrame(animate);
 
-    // RESIZE OBSERVER
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (let entry of entries) {
-        if (!cameraRef.current || !rendererRef.current) continue;
-        const { width, height } = entry.contentRect;
-        cameraRef.current.aspect = width / height;
-        cameraRef.current.updateProjectionMatrix();
-        rendererRef.current.setSize(width, height);
-      }
-    });
+    const handleResize = () => {
+      if (!cameraRef.current || !rendererRef.current || !containerRef.current) return;
+      const w = containerRef.current.clientWidth;
+      const h = containerRef.current.clientHeight;
+      cameraRef.current.aspect = w / h;
+      cameraRef.current.updateProjectionMatrix();
+      rendererRef.current.setSize(w, h);
+    };
 
-    resizeObserver.observe(containerRef.current);
+    window.addEventListener('resize', handleResize);
 
     return () => {
-      resizeObserver.disconnect();
+      window.removeEventListener('resize', handleResize);
       if (frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
       if (rendererRef.current) {
         rendererRef.current.dispose();
-        rendererRef.current.domElement.remove();
       }
     };
-  }, [isProcessing, isSpeaking]);
+  }, []); // Only run once on mount
 
-  return (
-    <div 
-      ref={containerRef} 
-      className="w-full h-full relative z-0 flex items-center justify-center"
-      style={{ 
-        filter: isSpeaking ? 'url(#refraction) brightness(1.2) contrast(1.1)' : 'brightness(1)',
-        transition: 'filter 0.3s ease'
-      }}
-    />
-  );
+  return <div ref={containerRef} className="w-full h-full relative z-0" />;
 };

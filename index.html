@@ -3,123 +3,82 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jarvis Neural Terminal v2.0</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Jarvis Neural Terminal v3.0</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --accent: 251, 191, 36; /* Default Amber */
-            --accent-glow: rgba(251, 191, 36, 0.5);
+            --accent: 251, 191, 36;
+            --accent-rgb: 251, 191, 36;
         }
 
-        .theme-classic { --accent: 245, 158, 11; }
-        .theme-stealth { --accent: 56, 189, 248; }
-        .theme-alert { --accent: 239, 68, 68; }
+        .theme-classic { --accent-rgb: 245, 158, 11; }
+        .theme-stealth { --accent-rgb: 56, 189, 248; }
+        .theme-alert { --accent-rgb: 239, 68, 68; }
 
         body {
             margin: 0;
             padding: 0;
-            background-color: #020100;
-            color: rgb(var(--accent));
+            background-color: #030100;
+            color: rgb(var(--accent-rgb));
             font-family: 'JetBrains Mono', monospace;
             overflow: hidden;
-            touch-action: manipulation;
-            transition: color 0.5s ease-in-out;
+            height: 100vh;
+            width: 100vw;
         }
+        
+        input, button, textarea {
+            touch-action: manipulation;
+        }
+        
         .font-orbitron { font-family: 'Orbitron', sans-serif; }
         
-        .glass {
-            background: rgba(10, 5, 2, 0.4);
-            backdrop-filter: blur(25px) saturate(200%);
-            -webkit-backdrop-filter: blur(25px) saturate(200%);
-            border: 1px solid rgba(var(--accent), 0.15);
-            box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.8);
-        }
-        .glass-dark {
-            background: rgba(2, 1, 0, 0.95);
-            backdrop-filter: blur(40px);
-            border: 1px solid rgba(var(--accent), 0.1);
+        .hud-glass {
+            background: rgba(var(--accent-rgb), 0.04);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(var(--accent-rgb), 0.1);
+            transition: all 0.3s ease;
         }
         
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(var(--accent), 0.3); border-radius: 10px; }
+        .hud-glass:hover {
+            border-color: rgba(var(--accent-rgb), 0.4);
+            background: rgba(var(--accent-rgb), 0.08);
+        }
+
+        .accent-text { color: rgb(var(--accent-rgb)); text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.4); }
+        .accent-border { border-color: rgba(var(--accent-rgb), 0.2); }
+        .accent-bg { background-color: rgb(var(--accent-rgb)); }
 
         @keyframes scanline {
             0% { transform: translateY(-100%); }
             100% { transform: translateY(100vh); }
         }
-        .scanline-hud {
+        .scanline {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
-            height: 2px;
-            background: linear-gradient(to right, transparent, rgba(var(--accent), 0.5), transparent);
-            z-index: 1000;
+            height: 4px;
+            background: linear-gradient(to bottom, transparent, rgba(var(--accent-rgb), 0.1), transparent);
+            z-index: 2000;
             pointer-events: none;
-            animation: scanline 6s linear infinite;
+            animation: scanline 10s linear infinite;
         }
 
-        .bg-grid {
-            background-image: 
-                linear-gradient(rgba(var(--accent), 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(var(--accent), 0.03) 1px, transparent 1px);
-            background-size: 60px 60px;
-            perspective: 1000px;
+        .bg-hex {
+            background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 0l17.32 10v20L20 40 2.68 30V10z' fill-opacity='0.01' fill='%23ffffff'/%3E%3C/svg%3E");
+            background-size: 20px 20px;
         }
 
-        .hud-border {
-            border: 1px solid rgba(var(--accent), 0.2);
-            position: relative;
-        }
-        .hud-border::before {
-            content: '';
-            position: absolute;
-            top: -2px; left: -2px; width: 12px; height: 12px;
-            border-top: 3px solid rgb(var(--accent)); border-left: 3px solid rgb(var(--accent));
-        }
-        .hud-border::after {
-            content: '';
-            position: absolute;
-            bottom: -2px; right: -2px; width: 12px; height: 12px;
-            border-bottom: 3px solid rgb(var(--accent)); border-right: 3px solid rgb(var(--accent));
-        }
+        ::-webkit-scrollbar { width: 3px; }
+        ::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb), 0.2); border-radius: 10px; }
 
-        .accent-text { color: rgb(var(--accent)); }
-        .accent-bg { background-color: rgb(var(--accent)); }
-        .accent-border { border-color: rgb(var(--accent)); }
-
-        @keyframes flicker {
-            0% { opacity: 0.8; filter: brightness(1); }
-            5% { opacity: 1; filter: brightness(1.2); }
-            10% { opacity: 0.9; filter: brightness(1); }
-            100% { opacity: 1; filter: brightness(1); }
+        @media (max-width: 640px) {
+            html { font-size: 11px; }
         }
-        .animate-flicker { animation: flicker 4s infinite linear; }
-
-        @keyframes noise {
-            0% { transform: translate(0,0) }
-            10% { transform: translate(-5%,-5%) }
-            20% { transform: translate(-10%,5%) }
-            30% { transform: translate(5%,-10%) }
-            40% { transform: translate(-5%,15%) }
-            50% { transform: translate(-10%,5%) }
-            60% { transform: translate(15%,0) }
-            70% { transform: translate(0,10%) }
-            80% { transform: translate(-15%,0) }
-            90% { transform: translate(10%,5%) }
-            100% { transform: translate(5%,0) }
-        }
-        .noise-bg {
-            position: fixed;
-            top: -50%; left: -50%; width: 200%; height: 200%;
-            background-image: url("https://grainy-gradients.vercel.app/noise.svg");
-            opacity: 0.03;
-            z-index: -1;
-            animation: noise 0.2s infinite;
-            pointer-events: none;
+        @media (min-width: 641px) and (max-width: 1024px) {
+            html { font-size: 12px; }
         }
     </style>
 <script type="importmap">
@@ -136,26 +95,10 @@
 <link rel="stylesheet" href="/index.css">
 </head>
 <body class="theme-classic">
-    <div id="root"></div>
-    <div class="scanline-hud"></div>
-    <div class="noise-bg"></div>
-    <div class="fixed inset-0 bg-grid pointer-events-none -z-10 animate-flicker"></div>
-    <div class="fixed inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(var(--accent),0.08),transparent_70%)] pointer-events-none -z-10"></div>
-    
-    <!-- Holographic Refraction Filter -->
-    <svg style="position: absolute; width: 0; height: 0;" aria-hidden="true" focusable="false">
-        <defs>
-            <filter id="hologram-glow">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
-                <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="glow" />
-                <feComposite in="SourceGraphic" in2="glow" operator="over" />
-            </filter>
-            <filter id="refraction">
-                <feTurbulence type="fractalNoise" baseFrequency="0.01 0.1" numOctaves="2" result="noise" />
-                <feDisplacementMap in="SourceGraphic" in2="noise" scale="5" xChannelSelector="R" yChannelSelector="G" />
-            </filter>
-        </defs>
-    </svg>
+    <div id="root" class="h-full w-full"></div>
+    <div class="scanline"></div>
+    <div class="fixed inset-0 bg-hex pointer-events-none -z-10 opacity-30"></div>
+    <div class="fixed inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(0,0,0,0)_0%,rgba(0,0,0,1)_100%)] pointer-events-none -z-10"></div>
 <script type="module" src="/index.tsx"></script>
 </body>
 </html>
