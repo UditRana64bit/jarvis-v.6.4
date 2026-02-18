@@ -4,11 +4,10 @@ import { Message, NeuralCoreType } from "../types";
 
 // Always initialize client using process.env.API_KEY directly as per guidelines
 export const getGeminiClient = () => {
-  if (!process.env.VITE_API_KEY || !import.meta.env.VITE_API_KEY) {
+  if (!process.env.API_KEY) {
     throw new Error("AUTH_KEY_NOT_SET");
   }
-  const apiKey = import.meta.env.VITE_API_KEY || process.env.VITE_API_KEY;
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 /**
